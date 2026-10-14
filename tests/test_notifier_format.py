@@ -167,9 +167,9 @@ class TestDiscordLinkPreviews:
 
 
 class TestFailureScreenshots:
-    """DEBUG_SCREENSHOTS sends the screenshot a failure leaves, off by default since it can show account details."""
+    """DEBUG_SCREENSHOTS sends the screenshot a failure leaves, never one taken after a claim or a skip; off by default."""
 
-    def _take(self, monkeypatch, tmp_path, on):
+    def _take(self, monkeypatch, tmp_path, on, failed=True):
         import asyncio
         import logging
 
@@ -192,12 +192,25 @@ class TestFailureScreenshots:
                 self.sent.append((message, kwargs.get("screenshot_path")))
 
         store = Store()
-        shot = asyncio.run(claimer.BaseClaimer.take_screenshot(store, "steam_fail_Game"))
+        shot = asyncio.run(claimer.BaseClaimer.take_screenshot(store, "steam_fail_Game", failed=failed))
         return shot, store.sent
 
     def test_the_screenshot_goes_out_when_asked(self, monkeypatch, tmp_path):
         shot, sent = self._take(monkeypatch, tmp_path, True)
         assert shot.exists() and sent == [("📸 steam: `steam_fail_Game.png`", shot)]
+
+    def test_a_screenshot_after_a_claim_stays_on_disk(self, monkeypatch, tmp_path):
+        shot, sent = self._take(monkeypatch, tmp_path, True, failed=False)
+        assert shot.exists() and sent == []
+
+    @pytest.mark.parametrize("store,name", [
+        ("steam.py", 'f"steam_paid_skip_{filenamify(page_title)}"'), ("steam.py", 'f"steam_{filenamify(page_title)}"'),
+        ("prime.py", 'f"prime_{filenamify(title)}"'), ("gamerpower.py", 'f"fanatical_{filenamify(title)}"'),
+        ("gamerpower.py", 'f"itchio_{filenamify(title)}"'), ("gamerpower.py", 'f"indiegala_{filenamify(title)}"'),
+    ])
+    def test_claims_and_skips_are_not_failures(self, store, name):
+        source = (ROOT / "src" / "stores" / store).read_text(encoding="utf-8")
+        assert f"take_screenshot({name})" not in source and f"take_screenshot({name}, failed=False)" in source
 
     def test_nothing_is_sent_by_default(self, monkeypatch, tmp_path):
         shot, sent = self._take(monkeypatch, tmp_path, False)

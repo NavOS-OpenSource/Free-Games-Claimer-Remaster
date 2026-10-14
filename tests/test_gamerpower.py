@@ -899,10 +899,12 @@ class TestFanaticalAccount:
         assert "const atok = localStorage.getItem('bsatok') || '';" in FAN_REVEAL_JS
 
     def test_fanaticals_error_text_is_masked_in_the_log(self):
-        # Release review: the reveal's error body may quote the account e-mail.
+        # Release review: the reveal's error body may quote the account e-mail; the log mask covers every address now.
+        from src.core.redact import redact
         source = TestFanaticalClaimHonesty.SOURCE
         reveal = source.split("async def _fanatical_reveal_key", 1)[1].split("\n    async def ", 1)[0]
-        assert r'r"\1***@", detail)' in reveal and "detail[:120]" in reveal
+        assert "detail[:120]" in reveal
+        assert redact("account pawel.a@gmail.com is not confirmed") == "account p***@gmail.com is not confirmed"
 
     def test_existed_never_overwrites_a_row(self):
         # Release review: a later "existed" wiped Steam's outcome for the key (claimed and activated, failed:key-*).
@@ -981,6 +983,38 @@ class TestFanaticalCheckout:
         # ProductAddToCartButton also sits on every paid add-to-cart on the page.
         assert ".GiveawaySteps__steps__action button" in FAN_MARK_MAIN_JS
         assert "ProductAddToCartButton" not in FAN_MARK_MAIN_JS
+
+    def test_paying_needs_a_zero_total_in_the_same_read(self):
+        # A later read without the total once let the pay button go on an earlier "free".
+        cart = "https://www.fanatical.com/en/cart"
+        reads = [
+            {"path": cart, "total": "€0.00", "proceed": True},
+            {"path": cart, "total": None, "pay": "Complete order"},
+            {"path": cart, "total": "€0.00", "pay": "Complete order"},
+            {"path": "https://www.fanatical.com/en/receipt?authResult=AUTHORISED"},
+        ]
+        clicks = []
+
+        class Stub:
+            page = None
+
+            async def sleep(self, seconds):
+                pass
+
+            async def _fanatical_click(self, script, label):
+                clicks.append((label, 4 - len(reads)))
+                return True
+
+        stub = Stub()
+
+        class Page:
+            async def evaluate(self, script):
+                return json.dumps(reads.pop(0))
+
+        stub.page = Page()
+        outcome = asyncio.run(GamerPowerClaimer._fanatical_checkout(stub, "Game"))
+        assert outcome[0] == "receipt"
+        assert clicks == [("Proceed to checkout", 1), ("Complete order", 3)]
 
     def test_a_claim_that_never_reaches_the_cart_does_not_ask_you(self):
         # A refused claim used to wait minutes and then tell you the game was in your cart.

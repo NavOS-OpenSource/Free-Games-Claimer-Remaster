@@ -207,7 +207,7 @@ Options are set via environment variables in `.env`:
 | `BROWSER_DIR` | `data/browser` | Browser profile directory (persists cookies/sessions). |
 | `SCREENSHOTS_DIR` | `data/screenshots` | Directory where debug/failure screenshots are saved. |
 | `DEBUG` | `true` | Shows verbose actions the bot takes. |
-| `DEBUG_LIBS` | `false` | Adds the internals of the libraries the bot uses (every CDP frame sent to Chrome, HTTP handshakes, SQL queries). Only turn this on if a bug report asks for it. |
+| `DEBUG_LIBS` | `false` | Adds the internals of the libraries the bot uses (every CDP frame sent to Chrome, HTTP handshakes, SQL queries). Only turn this on if a bug report asks for it. Your passwords, sign-in names, notification tokens and game codes should be masked in these lines too. |
 | `DEBUG_SCREENSHOTS` | `false` | Send each screenshot the bot takes when something fails (also kept in `data/screenshots/`) with a notification, to Discord and to Apprise services that take attachments. A screenshot can show your account name, e-mail or a game code, so send it only to a channel that is yours alone. |
 | `DRYRUN`| `false` | Simulate a run without claiming games. Detects available giveaways and sends a summary report. |
 | `DISCORD_WEBHOOK` | | Discord webhook URL for notifications. |
@@ -341,17 +341,16 @@ The application supports three scheduling modes: running on a recurring interval
 
 ### Selective module execution
 
-Run only specific stores using accepted module aliases (`steam`, `epic`, `prime`/`amazon`, `gog`, `ubisoft`/`ubi`, `fab`, `unity`, `microsoft`/`ms`/`xbox`, `aliexpress`/`ae`, `itchio`/`itch`, `fanatical`, `indiegala`, `alienware`):
+Run only specific stores using accepted module aliases (`steam`, `epic`, `prime`/`amazon`, `gog`, `ubisoft`/`ubi`, `fab`, `unity`, `microsoft`/`ms`/`xbox`, `aliexpress`/`ae`, `legacy`/`lg`, `itchio`/`itch`, `fanatical`, `indiegala`, `alienware`):
 
 ```bash
 # Method 1: Via environment variable (recommended)
 # Edit .env: STORES=steam,amazon
 
-# Method 2: Temporary execution via Docker Compose
-STORES=epic,gog docker compose up -d
-
-# Method 3: One-off immediate run inside Docker (ignores scheduler)
-docker compose run --rm app python main.py steam gog --once
+# Method 2: One-off immediate run of the named stores (ignores the scheduler)
+docker compose stop      # two bots must not share the same browser profiles
+docker compose run --rm --service-ports app python main.py steam gog --once
+docker compose start
 ```
 
 To skip a store, simply exclude it from the `STORES` list. Any unrecognized settings are now reported at startup rather than being ignored silently.
@@ -394,6 +393,7 @@ free-games-claimer-remaster/
 │   │   ├── database.py     # SQLAlchemy models & SQLite engine
 │   │   ├── display.py      # The virtual screen the browser draws on, and bringing it back
 │   │   ├── notifier.py     # Modular Discord/Apprise webhooks
+│   │   ├── redact.py       # Masks passwords, sign-in names, tokens and game codes in the log
 │   │   ├── selection.py    # Which stores this run covers (GamerPower reads it)
 │   │   ├── run_state.py    # What this run learned: which store is waiting for you
 │   │   ├── updates.py      # Tells you when a newer release is published
@@ -422,7 +422,7 @@ free-games-claimer-remaster/
 4. **Fingerprint** is the one nodriver's patched Chrome produces by itself, because a hand-written desktop spoof did not match the real container and started summoning captchas (see CHANGELOG 1.4). Only AliExpress overrides it, injecting one coherent real-device Android fingerprint (`browserforge`) over the Chrome DevTools Protocol.
 5. **Game discovery** prefers each store's own data over scraping the page: Epic's promotions API, Ubisoft's embedded news feed, Fab's free-content blade, the GamerPower API, and Steam's own search for items at 100% off.
 6. **Store selection** (`STORES`) is published to the run, so a GamerPower find is only claimed when this run includes the store it belongs to.
-7. **A claim counts only when the store agrees.** After the checkout the bot reads the product page or the account's own list back (Epic, Fab, Unity, Itch.io, IndieGala, Fanatical) and reports `claimed` only then, otherwise it says so instead of guessing. `fgc.db` (SQLite) remembers the outcome so runs do not trip over each other.
+7. **A claim counts only when the store agrees.** After the checkout the bot reads the product page or the account's own list back (Epic, Fab, Steam, Microsoft, Unity, Itch.io, IndieGala, Fanatical) and reports `claimed` only then, otherwise it says so instead of guessing. `fgc.db` (SQLite) remembers the outcome so runs do not trip over each other.
 8. **Clean Notifications** dispatch to you dynamically based on the toggles configured in the `.env` settings, and a daily update check tells you when a newer release is out (`NOTIFY_UPDATES`).
 9. **Two-factor sign-in follows one rule everywhere.** With an authenticator secret set (`*_OTP_KEY`) the bot sends two codes, the second one different from the first because a refused code stays refused inside its 30-second window. Then a recovery code from `*_OTP_CODES` if you gave it any, and only then the screen is left to you over VNC.
 10. **Your settings are read back to you at startup.** Anything in `.env` the bot does not understand is named in the log instead of being ignored, and account names are masked (`p***@gmail.com`) so a log is safe to share.
@@ -519,11 +519,9 @@ Keep this one for when you are truly stuck. You lose every saved login and the r
 
 The log already carries the bot's diagnostic detail, because `DEBUG` is on by default. With `DEBUG=false` it shows only what you act on: which store is running, who is signed in, what was found and claimed, plus every warning and error.
 
-1. **Check you are on the newest code first**, the fix may already exist. `docker logs fgc-remaster
-| head -20` prints the version in the banner. To try the development build, set `FGC_TAG=dev` in
-`.env`, then `docker compose pull` and `docker compose up -d`.
+1. **Check you are on the newest code first**, the fix may already exist. `docker logs fgc-remaster | head -20` prints the version in the banner. To try the development build, set `FGC_TAG=dev` in `.env`, then `docker compose pull` and `docker compose up -d`.
 2. If your `.env` has `DEBUG=false`, remove that line and restart (`docker compose up -d`), then reproduce the problem.
-3. Collect the log. Go to the folder that holds your `docker-compose.yml` and run `docker logs fgc-remaster --tail 500 > fgc.log.txt`. **The file appears in that folder, next to `docker-compose.yml`**, and you drag it into the GitHub comment box. Pasting the terminal output of the command itself sends us nothing, the log is inside the file. Prefer pasting? Run `docker logs fgc-remaster --tail 100` and put the output between triple backticks. Account names are masked for you (`p***@gmail.com`), so either way it is safe to share.
+3. Collect the log. Go to the folder that holds your `docker-compose.yml` and run `docker logs fgc-remaster --tail 500 > fgc.log.txt`. **The file appears in that folder, next to `docker-compose.yml`**, and you drag it into the GitHub comment box. Pasting the terminal output of the command itself sends us nothing, the log is inside the file. Prefer pasting? Run `docker logs fgc-remaster --tail 100` and put the output between triple backticks. Your passwords, two-factor secrets and notification tokens show as `***`, e-mail addresses as `p***@gmail.com`, other account names (such as your first name on Amazon) by their first letter, and game codes by their first five characters, so either way it should be safe to share, but please have a final look at it before sending.
 4. **Keep that file, then try it clean.** Leftover state explains a surprising share of these:
    ```bash
    docker compose down -v     # stops the bot and throws away logins and claim history
@@ -538,7 +536,7 @@ The log already carries the bot's diagnostic detail, because `DEBUG` is on by de
    - `data/*_fail.html`, page snapshots from failed logins/check-ins.
 6. Watch it live if it is still running: open `http://localhost:7080` (noVNC) and take over the browser.
 
-A good bug report is: what you expected, what happened, the `DEBUG=true` log around the failure, and the matching screenshot. `DEBUG=true` covers what the bot itself did; only add `DEBUG_LIBS=true` if you are asked for the raw network or browser traffic, because that turns one run into tens of thousands of lines. Please switch `DEBUG_LIBS` off again once the problem is solved.
+A good bug report is: what you expected, what happened, the `DEBUG=true` log around the failure, and the matching screenshot. `DEBUG=true` covers what the bot itself did; only add `DEBUG_LIBS=true` if you are asked for the raw network or browser traffic, because that turns one run into tens of thousands of lines. Please switch `DEBUG_LIBS` off again once the problem is solved. The [bug report form](https://github.com/P-Adamiec/Free-Games-Claimer-Remaster/issues/new?template=bug_report.yml) asks for exactly these.
 
 ---
 
@@ -549,6 +547,11 @@ This bot started as one of my personal automations for everyday tasks, and it is
 <p align="center">
   <a href="https://www.buymeacoffee.com/padamiec"><img alt="Support the project on Buy Me a Coffee" src=".github/support-button.svg" height="50" /></a>
 </p>
+
+> [!IMPORTANT]
+> I read and answer every issue and message personally. This is a free project that I develop on my own in my spare time, so replies and new features can take a while. Features that depend on services I don't use myself need some hands-on testing before they ship, and detailed reports and ideas speed that up a lot. If it seems I haven't quite understood your report, please bear with me and explain it once more in a little more detail. My setup and the apps I use every day are probably different from yours, and after a long day I can miss a detail too. That is why you are testers of this project as much as users, and together we keep making it better.
+>
+> Opening an issue? Pick the form that fits, [a bug, a feature idea or something else](https://github.com/P-Adamiec/Free-Games-Claimer-Remaster/issues/new/choose). Each one asks for what I need to understand it.
 
 ---
 

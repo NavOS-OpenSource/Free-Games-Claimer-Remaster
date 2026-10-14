@@ -67,6 +67,13 @@ def test_a_new_issue_nobody_answered_is_listed(digest):
     assert "new issue by stranger" in digest(issue("stranger", 1))
 
 
+def test_a_form_shows_its_answers_not_its_headings(mod):
+    body = ("### Before you report\n\n- [X] I updated to the newest version and the problem still happens.\n\n"
+            "### Version\n\nv1.15\n\n### Store or part of the bot\n\nEpic Games\n\n"
+            "### What happened\n\nThe bot clicked Get twice.\n\n### When it happens\n\n_No response_")
+    assert mod.excerpt(body) == "v1.15 Epic Games The bot clicked Get twice."
+
+
 def test_an_answered_issue_is_left_out(digest):
     assert digest(issue("stranger", 1, ev("commented", "owner", 2))) == ""
 

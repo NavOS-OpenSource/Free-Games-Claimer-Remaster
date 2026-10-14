@@ -140,7 +140,9 @@ def md(text):
 
 
 def excerpt(body, limit=140):
-    lines = [l for l in (body or "").splitlines() if not l.lstrip().startswith(">")]
+    # Issue forms put "### Field" headings, ticked boxes and "_No response_" between the answers.
+    lines = [l for l in (body or "").splitlines()
+             if not l.lstrip().startswith((">", "### ", "- [X] ", "- [x] ", "- [ ] ")) and l.strip() != "_No response_"]
     text = re.sub(r"<img[^>]*>|!\[[^\]]*\]\([^)]*\)", "[image]", " ".join(lines))
     text = re.sub(r"<!--.*?-->|```\w*", " ", text)
     text = " ".join(text.split())
