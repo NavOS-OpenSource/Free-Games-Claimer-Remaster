@@ -206,7 +206,7 @@ class TestAFailedSignInStopsTheRun:
     def test_the_loop_stops_once_signed_out(self):
         run = SOURCE.split("    async def run(", 1)[1].split("\n    async def ", 1)[0]
         after = run.split("if self._signed_out:", 1)[1][:500]
-        assert "len(todo) - index" in after and "needs_you(self.store_name, left)" in after and "break" in after
+        assert "len(todo) - index" in after and 'needs_you(self.store_name, left, "game")' in after and "break" in after
 
     def test_keys_stay_queued_without_a_sign_in(self):
         keys = SOURCE.split("async def redeem_pending_keys", 1)[1].split("\n    async def ", 1)[0]

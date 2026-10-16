@@ -6,6 +6,7 @@ and tomorrow's reward silently disappear (v1.5 bug).
 """
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -130,12 +131,33 @@ class TestCheckinCalendar:
         info = _claimer(("mtop.aliexpress.coin.channel.sign.list", REAL_CALENDAR))._extract_checkin_info_from_api()
         assert info["tomorrow"] == 50
 
-    def test_a_missed_day_invalidates_the_streak_counter(self):
+    def test_after_a_missed_day_the_streak_counts_from_it(self):
+        # The counter kept going over the gap, so the signed days since the gap are the streak: none yet today.
         broken = _calendar(_sign_node(-2, 13, True), _sign_node(-1, 14, False),
                            _sign_node(0, 15, False), _sign_node(1, 16, False))
         info = _claimer(("mtop.aliexpress.coin.channel.sign.list", broken))._extract_checkin_info_from_api()
-        assert info["streak"] is None
+        assert info["streak"] == 0
         assert info["tomorrow"] == 50
+
+    def test_a_broken_streak_reads_one_after_todays_collect(self):
+        # Live, 16.10: two days missed, the page said "1 dniowy ciąg", and the old code showed 49 from a product title.
+        before = _calendar(_sign_node(-2, 1, False), _sign_node(-1, 1, False), _sign_node(0, 1, False, 10),
+                           _sign_node(1, 2, False, 15))
+        after = _calendar(_sign_node(-2, 1, False), _sign_node(-1, 1, False), _sign_node(0, 1, True, 10),
+                          _sign_node(1, 2, False, 15))
+        claimer = _claimer(("mtop.aliexpress.coin.channel.sign.list", before),
+                           ("mtop.aliexpress.coin.channel.sign.list", after))
+        assert claimer._extract_checkin_info_from_api() == {"streak": 1, "tomorrow": 15}
+
+    def test_a_long_streak_without_a_gap_is_the_counter(self):
+        running = _calendar(_sign_node(-2, 47, True), _sign_node(-1, 48, True), _sign_node(0, 49, True))
+        info = _claimer(("mtop.aliexpress.coin.channel.sign.list", running))._extract_checkin_info_from_api()
+        assert info["streak"] == 49
+
+    def test_the_page_is_never_read_for_the_streak(self):
+        # Polish pages say "dniowy ciąg", and "Seria" in product titles was taken for the streak.
+        source = (Path(__file__).resolve().parent.parent / "src" / "stores" / "aliexpress.py").read_text(encoding="utf-8")
+        assert "_read_checkin_info_dom" not in source and "day streak|days? in a row" not in source
 
     def test_calendar_without_tomorrow_still_reports_the_streak(self):
         today_only = _calendar(_sign_node(-1, 14, True), _sign_node(0, 15, False))

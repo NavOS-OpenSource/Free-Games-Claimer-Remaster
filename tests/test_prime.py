@@ -136,4 +136,4 @@ class TestAFailedSignInStopsTheRun:
 
     def test_the_summary_hears_about_it_too(self):
         run = self.SOURCE.split("async def run", 1)[1].split("\n    async def ", 1)[0]
-        assert "needs_you(self.store_name)" in run
+        assert 'needs_you(self.store_name, 0, "game")' in run

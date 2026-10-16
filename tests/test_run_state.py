@@ -54,22 +54,74 @@ class TestWhatWasMissed:
         assert run_state.waiting_for_you() == {}
 
     def test_skips_add_up_per_store(self):
-        run_state.needs_you("itchio")
-        run_state.needs_you("itchio", 6)
-        run_state.needs_you("fanatical")
-        assert run_state.waiting_for_you() == {"itchio": 7, "fanatical": 1}
+        run_state.needs_you("itchio", 1, "giveaway")
+        run_state.needs_you("itchio", 6, "giveaway")
+        run_state.needs_you("fanatical", 1, "giveaway")
+        signed = run_state.NOT_SIGNED_IN
+        assert run_state.waiting_for_you() == {("itchio", signed, "giveaway"): 7, ("fanatical", signed, "giveaway"): 1}
+
+    def test_each_reason_and_unit_is_counted_on_its_own(self):
+        # "Needed you" has to say what was missing and what waits, not only how much.
+        run_state.needs_you("steam", 2, "game")
+        run_state.needs_you("steam", 3, "key")
+        run_state.needs_you("epic", 2, "game", why=run_state.CAPTCHA_UNSOLVED)
+        assert run_state.waiting_for_you() == {("steam", run_state.NOT_SIGNED_IN, "game"): 2,
+                                               ("steam", run_state.NOT_SIGNED_IN, "key"): 3,
+                                               ("epic", run_state.CAPTCHA_UNSOLVED, "game"): 2}
 
     def test_the_caller_cannot_change_it_by_accident(self):
-        run_state.needs_you("itchio")
-        run_state.waiting_for_you()["itchio"] = 99
-        assert run_state.waiting_for_you() == {"itchio": 1}
+        run_state.needs_you("itchio", 1, "giveaway")
+        run_state.waiting_for_you()[("itchio", run_state.NOT_SIGNED_IN, "giveaway")] = 99
+        assert run_state.waiting_for_you() == {("itchio", run_state.NOT_SIGNED_IN, "giveaway"): 1}
+
+
+class TestTheSentenceSaysWhatWaits:
+    """No shorthand: the reason as a sentence, and what the number counts."""
+
+    @pytest.mark.parametrize("why,count,item,sentence", [
+        (run_state.CAPTCHA_UNSOLVED, 3, "game", "a captcha was not solved, so 3 games wait for the next run."),
+        (run_state.CAPTCHA_UNSOLVED, 1, "game", "a captcha was not solved, so 1 game waits for the next run."),
+        (run_state.NOT_SIGNED_IN, 3, "key", "the sign-in was not finished, so 3 keys wait for the next run."),
+        (run_state.NO_ANSWER, 1, "giveaway", "nobody answered over VNC, so 1 giveaway waits for the next run."),
+        (run_state.NOT_SIGNED_IN, 0, "game", "the sign-in was not finished, so nothing was claimed."),
+    ])
+    def test_it_reads_as_a_sentence(self, why, count, item, sentence):
+        assert run_state.describe_wait(why, count, item) == sentence
+
+
+class TestAnUnsolvedCaptchaStopsTheStore:
+    """A captcha nobody solved: the store's other games wait for the next run instead of drawing more checks."""
+
+    class _Store:
+        store_name = "epic"
+
+        class logger:
+            @staticmethod
+            def warning(*args):
+                pass
+
+    def _stops(self, left):
+        from src.core.claimer import BaseClaimer
+        return BaseClaimer._captcha_stops_store(self._Store(), left, "game")
+
+    def test_a_store_you_answered_goes_on(self):
+        assert self._stops(3) is False and run_state.waiting_for_you() == {}
+
+    def test_after_an_unsolved_captcha_the_rest_is_counted_and_left(self):
+        run_state.mark_unanswered("epic")
+        assert self._stops(3) is True
+        assert run_state.waiting_for_you() == {("epic", run_state.CAPTCHA_UNSOLVED, "game"): 3}
+
+    def test_another_store_is_not_held_back(self):
+        run_state.mark_unanswered("fab")
+        assert self._stops(3) is False
 
 
 class TestEveryRunStartsClean:
     def test_reset_clears_both(self):
         # The container runs for weeks; a store that was waiting this morning gets another go.
         run_state.mark_unanswered("itchio")
-        run_state.needs_you("itchio", 3)
+        run_state.needs_you("itchio", 3, "giveaway")
         run_state.reset_run_state()
         assert run_state.waits_for_nobody("itchio") is False
         assert run_state.waiting_for_you() == {}

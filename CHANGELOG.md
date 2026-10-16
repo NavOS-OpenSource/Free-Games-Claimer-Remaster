@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This project does not follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html): every release raises the number after the dot (1.10, 1.11), and a development build carries the same number with a `d` suffix (`v1.11d`). The version being worked on stays at the top without a date until it is released.
 
+## [1.16] - 2026-10-16
+
+A hotfix for Epic Games: the mouse clicks 1.13 brought in to draw fewer captchas missed Epic's new checkout frame, so Epic claims stopped on 1.13 to 1.15. Epic keeps changing its site and anti-bot checks, so a problem there can come from their side too, and an issue with your log helps the bot catch up. The more users run the development build, the sooner such a change is caught there, before a release. If you are a technical user, please set `FGC_TAG=dev`, keep `DEBUG=true` (the default) and report what you see.
+
+### Changed
+- **Epic and the Microsoft Store retry a game they could not claim** – `_claim_game()` in `src/stores/epic.py` and `_record_claim()` in `src/stores/microsoft.py` no longer ask you to claim it yourself: it shows as `failed` (hidden with `NOTIFY_CLAIM_FAILS=false`) and the next run tries again while it is free. After a checkout that did not go through, Epic checks the game page once, not three times.
+- **The summary says why the bot needed you and what is left** – `needs_you()` in `src/core/run_state.py` names the reason and what the number counts, so the "Needed you" line reads "Epic Games: a captcha was not solved, so 3 games wait for the next run." instead of "Epic: waiting for you, 3 skipped". After a captcha nobody solved, Epic and Fab open no more games in that run.
+
+### Fixed
+- **Epic adds free games to your library again** – Epic moved its checkout into a new frame, and on 1.13 to 1.15 `_cdp_click_in_frame()` in `src/stores/epic.py` measured a hidden captcha frame instead, so no "Add to library" click went through. The mouse now aims at the frame the button is read from; `_handle_purchase_iframe()` finds that frame the same way.
+- **Long summaries reach Telegram, split into several messages** – `send_apprise()` in `src/core/notifier.py` cuts such a summary at line ends into parts under 4000 characters, as Discord's already was. Telegram refuses more than 4096 characters of text, so the summary of a big run never arrived, and a part a service refuses is now logged as a warning instead of "sent".
+- **The summary is sent even when no store found a game** – `main.py` sends it when a store only stopped to wait for you, such as Prime with a sign-in nobody finished, so its "Needed you" line still reaches you.
+- **AliExpress shows the right check-in streak after a missed day** – `_extract_checkin_calendar()` in `src/stores/aliexpress.py` counts the days signed since the gap, from the calendar read after the collect. The streak and tomorrow's coins now come only from AliExpress's API, not the page, where "Seria" in a product title read as a 49-day streak.
+- **A mistyped authenticator key no longer stops the sign-in ([#88](https://github.com/P-Adamiec/Free-Games-Claimer-Remaster/issues/88))** – `otp_key()` in `src/core/config.py` ignores spaces and `=` at the end of every `*_OTP_KEY`. A key with a letter too many or too few, which stopped Epic with "Incorrect padding", is named at startup, and the bot waits for you to type the code over VNC.
+
 ## [1.15] - 2026-10-15
 
 ### Added
@@ -423,6 +438,7 @@ Steam no longer reads SteamDB: free Steam games now come from GamerPower and Ste
 - ❌ `unrealengine.js` – Out of scope
 - ❌ `steam-games.js` – Only scraped profiles, never claimed games
 
+[1.16]: https://github.com/P-Adamiec/Free-Games-Claimer-Remaster/compare/v1.15...v1.16
 [1.15]: https://github.com/P-Adamiec/Free-Games-Claimer-Remaster/compare/v1.14...v1.15
 [1.14]: https://github.com/P-Adamiec/Free-Games-Claimer-Remaster/compare/v1.13...v1.14
 [1.13]: https://github.com/P-Adamiec/Free-Games-Claimer-Remaster/compare/v1.12...v1.13

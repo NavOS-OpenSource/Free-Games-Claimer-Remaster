@@ -164,7 +164,7 @@ class TestTheSideStoreLoopBacksOff:
 
     def test_the_skip_is_counted_for_the_summary(self):
         block = self.SOURCE.split("for store, game in work:", 1)[1].split("except Exception", 1)[0]
-        assert "needs_you(store)" in block
+        assert "needs_you(store, " in block
 
     def test_each_site_keeps_its_own_tally(self):
         # One claimer serves four sites, so Itch.io timing out must not silence Fanatical.

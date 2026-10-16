@@ -131,18 +131,15 @@ class TestNothingFromACodeLeaks:
                 assert "mask_account(" in line, line.strip()
 
 
-class TestAMissedGiveawayStillReachesYou:
-    """A giveaway runs for days, so one the bot could not take has to be reported by default."""
+class TestAMissedGiveawayIsTheBotsJob:
+    """A giveaway runs for days, so one the bot could not take is tried again next run, not handed to you."""
 
     SOURCE = (Path(__file__).resolve().parent.parent / "src" / "stores" / "microsoft.py").read_text(encoding="utf-8")
-    FILTERED_WORDS = ("fail", "skip", "already", "exist", "download", "missing_base")
+    RECORD = SOURCE.split("async def _record_claim", 1)[1].split("\n    async def ", 1)[0]
 
-    def test_a_giveaway_left_for_you_is_reported_as_notified(self):
-        # "notified" is the shared word for "found it, take it yourself", and the filter lets it through.
-        block = self.SOURCE.split("async def _record_claim", 1)[1].split("\n    async def ", 1)[0]
-        assert '"status": "notified"' in block
-        for word in self.FILTERED_WORDS:
-            assert word not in "notified", f"notified would be filtered out by {word}"
+    def test_a_giveaway_not_taken_is_reported_as_failed(self):
+        assert '"status": "failed"' in self.RECORD
+        assert '"status": "notified"' not in self.RECORD and "yourself" not in self.RECORD
 
     def test_a_claim_that_did_not_happen_is_called_what_it_is(self):
         # One state, one name: the wording for you is a separate decision from the outcome.
@@ -150,9 +147,9 @@ class TestAMissedGiveawayStillReachesYou:
         press = self.SOURCE.split("async def _press_get", 1)[1].split("\n    async def ", 1)[0]
         assert 'return "failed"' in press
 
-    def test_the_store_is_marked_as_needing_you(self):
-        block = self.SOURCE.split("async def _record_claim", 1)[1].split("\n    async def ", 1)[0]
-        assert "needs_you(self.store_name)" in block
+    def test_nothing_is_recorded_so_the_next_run_tries_again(self):
+        not_taken = self.RECORD.split('if outcome == "owned"', 1)[1].split("return", 1)[1]
+        assert "_remember(" not in not_taken and "needs_you(" not in not_taken
 
     def test_only_a_get_button_is_ever_pressed(self):
         # "Buy" and the Game Pass offer sit right next to it, and neither is free.

@@ -150,8 +150,14 @@ class TestWhatNeededYou:
     def test_it_is_silent_when_nothing_waited(self):
         assert "if stuck:" in self.AFTER
 
-    def test_it_says_the_store_and_how_much_it_missed(self):
-        assert "waiting for you" in self.AFTER and "{count} skipped" in self.AFTER
+    def test_it_says_the_store_by_its_name_and_what_waits(self):
+        # "Epic Games: a captcha was not solved, so 3 games wait for the next run."
+        assert "_KEY_TO_DISPLAY.get(name" in self.AFTER and "describe_wait(why, count, item)" in self.AFTER
+
+    def test_every_store_has_the_name_notifications_use(self):
+        import main
+        assert main._KEY_TO_DISPLAY["epic"] == "Epic Games" and main._KEY_TO_DISPLAY["prime"] == "Prime Gaming"
+        assert main._KEY_TO_DISPLAY["itchio"] == "Itch.io" and main._KEY_TO_DISPLAY["legacygames"] == "Legacy Games"
 
     def test_it_is_not_filtered_like_a_game(self):
         # "skipped" in a game status is dropped by default, so this line is its own section.
@@ -159,3 +165,12 @@ class TestWhatNeededYou:
 
     def test_every_run_starts_without_yesterdays_note(self):
         assert "reset_run_state()" in self.SOURCE
+
+
+class TestNeededYouArrivesWithoutGames:
+    """Audit: Prime with a sign-in nobody finished returns no games, and the summary used to stay silent."""
+
+    SOURCE = MAIN_PY.read_text(encoding="utf-8")
+
+    def test_the_summary_is_built_when_only_a_store_waited(self):
+        assert "if cfg.notify_summary and (aggregated_results or waiting_for_you()):" in self.SOURCE

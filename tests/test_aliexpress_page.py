@@ -66,6 +66,11 @@ class TestTodayFromApi:
         assert today_from_payloads([sign_list([day(0, signed=True, coins=70)])]) == {
             "claimed": True, "coins": 70}
 
+    def test_the_calendar_after_the_collect_wins(self):
+        # Both calendars stay in the capture; the one read before the collect still says today is open.
+        payloads = [sign_list([day(0, signed=False, coins=70)]), sign_list([day(0, signed=True, coins=70)])]
+        assert today_from_payloads(payloads) == {"claimed": True, "coins": 70}
+
     def test_other_days_are_ignored(self):
         payloads = [sign_list([day(-2, signed=True, coins=10), day(1, signed=False, coins=90)])]
         assert today_from_payloads(payloads) == {"claimed": None, "coins": None}

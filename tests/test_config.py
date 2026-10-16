@@ -207,7 +207,7 @@ class TestAuthenticatorSecrets:
 
     @pytest.mark.parametrize("name,field", sorted(NEW.items()))
     def test_the_new_name_is_read(self, monkeypatch, name, field):
-        assert getattr(_reload(monkeypatch, **{name: "ABCDEF"}), field) == "ABCDEF"
+        assert getattr(_reload(monkeypatch, **{name: "ABCDEFGH"}), field) == "ABCDEFGH"
 
     @pytest.mark.parametrize("name,field", sorted(NEW.items()))
     def test_your_own_env_cannot_reach_these_tests(self, monkeypatch, name, field):
@@ -218,7 +218,7 @@ class TestAuthenticatorSecrets:
     @pytest.mark.parametrize("name,field", [("EG_OTPKEY", "eg_otp_key"), ("PG_OTPKEY", "pg_otp_key"),
                                             ("UBI_OTPKEY", "ubi_otp_key")])
     def test_the_old_name_still_works(self, monkeypatch, name, field):
-        assert getattr(_reload(monkeypatch, **{name: "ABCDEF"}), field) == "ABCDEF"
+        assert getattr(_reload(monkeypatch, **{name: "ABCDEFGH"}), field) == "ABCDEFGH"
 
     @pytest.mark.parametrize("name", ["GOG_OTPKEY", "ITCHIO_OTPKEY"])
     def test_a_name_that_never_shipped_carries_no_shim(self, monkeypatch, name):
@@ -226,7 +226,24 @@ class TestAuthenticatorSecrets:
         assert name not in config_module._DEPRECATED
 
     def test_the_new_name_wins(self, monkeypatch):
-        assert _reload(monkeypatch, EG_OTP_KEY="new", EG_OTPKEY="old").eg_otp_key == "new"
+        assert _reload(monkeypatch, EG_OTP_KEY="ABCDEFGH", EG_OTPKEY="HGFEDCBA").eg_otp_key == "ABCDEFGH"
+
+    @pytest.mark.parametrize("pasted", ["JBSW Y3DP EHPK 3PXP", "jbswy3dpehpk3pxp", "JBSWY3DPEHPK3PXP=", "JBSWY3DPEHPK3PXP======"])
+    def test_a_key_as_sites_show_it_is_read(self, monkeypatch, pasted):
+        assert _reload(monkeypatch, EG_OTP_KEY=pasted).eg_otp_key == "JBSWY3DPEHPK3PXP"
+
+    # Issue #88: a letter too many or too few crashed the whole Epic sign-in with "Incorrect padding".
+    @pytest.mark.parametrize("broken", ["JBSWY3DPEHPK3PXPJ", "ABCDEF", "123456", "otpauth://totp/x?secret=JBSWY3DP"])
+    def test_a_key_that_cannot_be_one_counts_as_not_set(self, monkeypatch, broken):
+        assert _reload(monkeypatch, EG_OTP_KEY=broken).eg_otp_key is None
+
+    def test_a_broken_key_is_named_at_startup_without_its_value(self, monkeypatch):
+        from src.core import config as config_module
+        monkeypatch.setenv("EG_OTP_KEY", "JBSWY3DPEHPK3PXPJ")
+        monkeypatch.setenv("GOG_OTP_KEY", "JBSWY3DPEHPK3PXP")
+        warnings = [line for line in config_module.settings_warnings() if "OTP" in line]
+        assert len(warnings) == 1 and warnings[0].startswith("EG_OTP_KEY is not the key")
+        assert "JBSW" not in warnings[0]
 
     def test_the_old_name_is_named_in_the_warning(self, monkeypatch, tmp_path):
         from src.core import config as config_module

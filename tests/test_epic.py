@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+import nodriver as uc
 import pytest
 
 from src.core.claimer import account_key, older_than
@@ -257,13 +258,31 @@ class TestTheCheckoutCaptcha:
 
     def test_nothing_leaves_the_page_while_one_is_up(self):
         # Checking ownership opens the product page, which would drop an order still waiting.
-        assert self.CLAIM.index("_clear_checkout_challenge(title)") < self.CLAIM.index("_confirm_in_library(url)")
+        assert self.CLAIM.index("_clear_checkout_challenge(title)") < self.CLAIM.index("_confirm_in_library(url,")
 
-    def test_a_claim_that_did_not_land_reaches_you(self):
-        tail = self.CLAIM.split("_confirm_in_library(url)", 1)[1]
-        assert 'notify_game["status"] = "notified"' in tail
-        assert "needs_you(self.store_name)" in tail
-        assert 'notify_game["status"] = "failed"' not in tail
+    def test_a_claim_that_did_not_land_is_tried_again_not_handed_to_you(self):
+        # Only a captcha needs a person; the failed row is opened again on the next run.
+        tail = re.sub(r"\s+", " ", self.CLAIM.split("_confirm_in_library(url,", 1)[1])
+        assert 'notify_game["status"] = "failed"' in tail
+        assert "yourself" not in tail and '"notified"' not in tail
+        # Only a captcha left unanswered in this run reaches "Needed you", and it says so.
+        assert tail.count("needs_you(") == 1
+        assert 'if waits_for_nobody(self.store_name): needs_you(self.store_name, 1, "game", why=CAPTCHA_UNSOLVED)' in tail
+
+    def test_a_checkout_that_did_not_finish_reloads_the_page_once(self):
+        # 15.10: four failed checkouts reloaded their pages three times each on a session under watch.
+        assert "_confirm_in_library(url, tries=3 if checkout_ok else 1)" in self.CLAIM
+
+    def test_a_security_check_nobody_solved_reaches_needed_you(self):
+        stuck = re.sub(r"\s+", " ", self.CLAIM.split("not cleared, trying again next run", 1)[1][:300])
+        assert 'needs_you(self.store_name, 1, "game", why=CAPTCHA_UNSOLVED)' in stuck
+
+    @pytest.mark.parametrize("module,loop", [("epic", "_claim_game(url"), ("epic_fab", "_claim_listing(item)")])
+    def test_after_an_unsolved_captcha_the_store_opens_nothing_more(self, module, loop):
+        source = (Path(__file__).resolve().parent.parent / "src" / "stores" / f"{module}.py").read_text(encoding="utf-8")
+        run = re.sub(r"\s+", " ", source.split("async def run(", 1)[1].split("\n    async def ", 1)[0])
+        assert "if self._captcha_stops_store(" in run and "break" in run
+        assert run.index("_captcha_stops_store(") < run.index(f"await self.{loop}")
 
 
 class TestNoConsentIsGivenForYou:
@@ -392,6 +411,62 @@ class TestEpicIsClickedLikeAHand:
 
     def test_the_script_click_skips_a_disabled_button(self):
         assert "if (el && !el.disabled) {{ el.click()" in self.SOURCE
+
+
+class TestTheFrameClickAimsAtItsOwnFrame:
+    """15.10: Epic moved its checkout to /checkout, and a selector measured the hidden hCaptcha frame instead."""
+
+    # Read live on 15.10: the Checkout frame's corner, and "Add to library" inside it.
+    ORIGIN = json.dumps({"x": 92.5, "y": 57.5, "w": 1078, "top": 57.5, "bottom": 517.5})
+    BUTTON = {"x": 561, "y": 423, "key": "BUTTON|Add to library"}
+
+    def _to_page(self, owner_answers, owner_fails=False):
+        sent = []
+
+        class Page:
+            async def send(self, command):
+                method = next(command)["method"]
+                sent.append(method)
+                if method == "DOM.getFrameOwner":
+                    if owner_fails:
+                        raise RuntimeError("No frame for given id found")
+                    return uc.cdp.dom.BackendNodeId(7), None
+                if method == "DOM.resolveNode":
+                    return SimpleNamespace(object_id=uc.cdp.runtime.RemoteObjectId("iframe"))
+                return SimpleNamespace(value=owner_answers.pop(0)), None
+
+        point = {}
+
+        async def click_until_taken(read, run_js, wheel_point, to_page, finder, label, tries=1, allow_script=False):
+            point["at"] = await to_page(self.BUTTON)
+            return False
+
+        stub = SimpleNamespace(page=Page(), _click_until_taken=click_until_taken)
+        asyncio.run(EpicGamesClaimer._cdp_click_in_frame(stub, 1, "() => null", "add to library",
+                                                         frame_id=uc.cdp.page.FrameId("checkout")))
+        return point["at"], sent
+
+    def test_the_point_is_the_frames_own_corner_plus_the_button(self):
+        at, sent = self._to_page([self.ORIGIN, True])
+        assert at == (654, 480)
+        assert sent.count("DOM.getFrameOwner") == 2
+
+    def test_a_point_off_the_frame_is_not_clicked(self):
+        assert self._to_page([self.ORIGIN, False])[0] is None
+
+    def test_a_frame_the_page_cannot_place_is_not_clicked(self):
+        assert self._to_page([], owner_fails=True)[0] is None
+
+    def test_the_checkout_frame_is_found_by_its_address(self):
+        node = lambda fid, url, kids=(): SimpleNamespace(frame=SimpleNamespace(id_=fid, url=url), child_frames=list(kids))
+        tree = node("top", "https://store.epicgames.com/en-US/p/bad-cheese-4256d9", [
+            node("blank", "about:blank"), node("checkout", "https://store.epicgames.com/checkout?locale=en-US")])
+        assert EpicGamesClaimer.__new__(EpicGamesClaimer)._find_purchase_frame(tree) == "checkout"
+
+    def test_the_old_checkout_waits_in_the_frame_tree(self):
+        source = (Path(__file__).resolve().parent.parent / "src" / "stores" / "epic.py").read_text(encoding="utf-8")
+        old_flow = source.split("async def _handle_purchase_iframe", 1)[1].split("\n    def ", 1)[0]
+        assert "querySelector('#webPurchaseContainer" not in old_flow and "FIND_CHECKOUT_FRAME" not in source
 
 
 class TestEveryClickIsChecked:
@@ -636,7 +711,7 @@ class TestGamePagesAreOpenedSparingly:
     def test_mobile_games_skip_the_list(self):
         # Checked live: the free games list has no tile for them, so looking only cost a page load.
         run = (Path(__file__).resolve().parent.parent / "src" / "stores" / "epic.py").read_text(encoding="utf-8")
-        assert 'from_list=game["url"] not in self._platform_labels' in run
+        assert '(game["url"], game["url"] not in self._platform_labels)' in run and 'todo.append((game["final_url"], False))' in run
 
     def test_a_game_from_gamerpower_is_opened_by_its_address(self, row):
         stub = self._claim(self._Stub(tile=True, path="/en-US/p/out-of-sight"))

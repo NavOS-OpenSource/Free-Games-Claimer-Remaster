@@ -230,7 +230,7 @@ Nothing here is required. By default the bot stops at a code screen and asks you
 
 If you want it to get through 2FA on its own there are two ways, and they are not equivalent:
 
-- **An authenticator secret** (`*_OTP_KEY`) is the key behind the QR code you scanned into your phone, offered as "manual entry key" during setup. The bot becomes another authenticator app and never runs out of codes. What it costs: your password and your second factor then sit in the same `.env` on the same machine, so whoever reads that file has both.
+- **An authenticator secret** (`*_OTP_KEY`) is the key behind the QR code you scanned into your phone, offered as "manual entry key" during setup. Spaces and `=` at the end are fine; a key the bot cannot read is named in the first lines of the log, and the bot then waits for you to type the code over VNC. The bot becomes another authenticator app and never runs out of codes. What it costs: your password and your second factor then sit in the same `.env` on the same machine, so whoever reads that file has both.
 - **Recovery codes** (`*_OTP_CODES`) are one-shot. The bot spends one per sign-in and writes it to `data/used_*_codes.txt`, so a stolen file costs a limited number of logins instead of permanent access, and you can see which ones were used. They do run out, and then it is back to VNC.
 
 Set either, both, or neither. Filling one in is all it takes to switch it on. Every store follows the same order: **two codes from the secret, then one recovery code, then you over VNC.** The second code is never the same digits as the first, because a code refused inside its 30-second window stays refused.
@@ -435,6 +435,7 @@ Both Discord and Apprise can be configured simultaneously, notifications are sen
 
 - **Discord**: Set `DISCORD_WEBHOOK` in `.env`.
 - **Apprise (Telegram, Slack, Email, ntfy, etc.)**: Set `NOTIFY` in `.env`. You can provide multiple URLs separated by commas (e.g. `NOTIFY=ntfy://topic, tgram://token/id`).
+- **Long summaries**: a summary too long for one message arrives in several, cut between lines: up to 2000 characters each on Discord and 4000 through Apprise, under Telegram's limit.
 - **Fine-Tune Filtering**: Use `NOTIFY_SUMMARY=false`, `NOTIFY_ERRORS=false`, etc., to silence specific notification subsets across all services globally.
 - **Testing**: Set `NOTIFY_TEST=true` to receive a test notification whenever the container starts.
 
@@ -452,7 +453,7 @@ Both Discord and Apprise can be configured simultaneously, notifications are sen
 | Epic captcha | Epic asks now and then, sometimes inside the checkout window after "Add to library". The bot looks there too, pings you to solve it over VNC and finishes the claim once it is gone. The EU right-of-withdrawal step is accepted for you. |
 | False positive claims | Set `RESET_DB_GAMES=true` in your `.env`, reboot the container, and the bot will forget the last 7 days of claims, allowing the logic to try claiming them again. Set it back to `false` afterwards, or it does this at every start. |
 | Setting seems to be ignored | The bot names every setting it does not read at startup, for example an invented `STEAM_ENABLE`, and every value that cannot mean what it says, for example `DRYRUN=maybe`, which counts as false. Passwords, e-mail addresses and webhook URLs are masked in that message. |
-| A store was skipped, saying it waited for you | It asked you for something in the browser (a sign-in, a code, a captcha) and nobody answered within `VNC_LOGIN_TIMEOUT`. That store stops asking for the rest of the run, so it does not sit on a login screen for hours or keep re-opening it, and the summary lists what it skipped. Raise the timeout, or let the next run pick it up. |
+| A store was skipped, saying it waited for you | It asked you for something in the browser (a sign-in, a code, a captcha) and nobody answered within `VNC_LOGIN_TIMEOUT`. That store stops asking for the rest of the run, so it does not sit on a login screen for hours or keep re-opening it; after a captcha nobody solved, Epic and Fab open nothing more in that run. The summary's "Needed you" line says why and how many games, keys or codes wait for the next run. Raise the timeout, or let the next run pick it up. |
 | Container crashes on start | Check logs: `docker compose logs app --tail=50`. A clean restart purges `.X1-lock` bugs. |
 | Browser will not start and VNC shows nothing | The virtual screen the browser draws on has died, which stops every store and leaves the noVNC page blank behind it. The bot now starts that screen again by itself and carries on. When it cannot, it says so in one line and `data/TurboVNC.log` holds the reason. |
 

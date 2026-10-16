@@ -236,3 +236,71 @@ class TestFailureScreenshots:
         asyncio.run(notifier.send_apprise("x"))
         assert calls == [str(shot), None]
 
+
+
+class TestALongMessageArrivesInParts:
+    """Telegram refuses more than 4096 characters and Apprise sends a long message as it is, so it never arrived."""
+
+    LINE = "• **[Agent A: A puzzle in disguise (Android)](https://store.epicgames.com/en-US/p/agent-a-897342)**: claimed"
+
+    def test_a_short_message_is_one_part(self):
+        from src.core.notifier import split_message
+        assert split_message("a\nb", 4000) == ["a\nb"]
+
+    def test_parts_stay_under_the_limit_and_keep_every_line_whole(self):
+        from src.core.notifier import split_message
+        message = "\n".join([self.LINE] * 60)
+        parts = split_message(message, 4000)
+        assert len(parts) > 1 and all(len(p) <= 4000 for p in parts)
+        assert all(line == self.LINE for p in parts for line in p.split("\n"))
+        assert "\n".join(parts) == message
+
+    def test_a_line_longer_than_the_limit_is_cut_not_refused(self):
+        from src.core.notifier import split_message
+        parts = split_message("x" * 9000, 4000)
+        assert [len(p) for p in parts] == [4000, 4000, 1000]
+
+    def test_apprise_sends_each_part_and_the_screenshot_once(self, monkeypatch, tmp_path):
+        import asyncio
+
+        import src.core.notifier as notifier
+        calls = []
+
+        class Apprise:
+            def add(self, url):
+                pass
+
+            def notify(self, **kwargs):
+                calls.append((len(kwargs["body"]), kwargs.get("attach")))
+                return True
+
+        monkeypatch.setattr(notifier.apprise, "Apprise", Apprise)
+        monkeypatch.setattr(notifier.cfg, "notify_url", "tgram://token/chat")
+        shot = tmp_path / "shot.png"
+        asyncio.run(notifier.send_apprise("\n".join([self.LINE] * 60), attach=shot))
+        assert len(calls) > 1 and all(size <= notifier.APPRISE_MAX for size, _ in calls)
+        assert [attach for _, attach in calls] == [str(shot)] + [None] * (len(calls) - 1)
+
+    def test_a_refused_part_is_logged_as_a_warning_not_as_sent(self, monkeypatch, caplog):
+        import asyncio
+        import logging
+
+        import src.core.notifier as notifier
+
+        class Apprise:
+            def add(self, url):
+                pass
+
+            def notify(self, **kwargs):
+                return False
+
+        monkeypatch.setattr(notifier.apprise, "Apprise", Apprise)
+        monkeypatch.setattr(notifier.cfg, "notify_url", "tgram://token/chat")
+        with caplog.at_level(logging.DEBUG, logger="fgc.notifier"):
+            asyncio.run(notifier.send_apprise("x"))
+        assert any(r.levelno == logging.WARNING and "could not deliver" in r.getMessage() for r in caplog.records)
+        assert not any("notification sent" in r.getMessage() for r in caplog.records)
+
+    def test_discord_uses_the_same_split(self):
+        source = (ROOT / "src" / "core" / "notifier.py").read_text(encoding="utf-8")
+        assert "split_message(message, DISCORD_MAX)" in source.split("async def send_discord", 1)[1].split("\ndef ", 1)[0]
