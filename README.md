@@ -160,7 +160,7 @@ Options are set via environment variables in `.env`:
 | `PG_EMAIL` | | Prime Gaming (Amazon) email. |
 | `PG_PASSWORD` | | Prime Gaming password. |
 | `PG_OTP_KEY` | | Prime Gaming authenticator (TOTP) key. |
-| `PG_FORCE_CHECK_COLLECTED` | `false` | Force re-check already marked 'claimed' games. |
+| `PG_FORCE_CHECK_COLLECTED` | `false` | Open every game already marked 'claimed' again. A game whose code was not on the page yet is looked for again on its own, without this. |
 | `LG_EMAIL` | | Legacy Games account email. With `LG_PASSWORD`, the Legacy Games codes from Prime Gaming are redeemed into that account in the same run (they expire within days). Without them the bot only says how many codes are waiting. The newsletter box is always unticked. |
 | `LG_PASSWORD` | | Legacy Games account password. |
 | `GOG_EMAIL` | | GOG login email. |
@@ -295,8 +295,8 @@ Not sure which one is yours? Open [ipapi.co/timezone](https://ipapi.co/timezone/
 
 Unity is opt-in (`STORES=...,unity`) and its checkout refuses the free coupon until your Unity account carries a complete billing address. That is the one thing the bot cannot invent for you, so on the first claim it opens the checkout, pings you the same way it does for a login, and waits as long as `VNC_LOGIN_TIMEOUT` says, three minutes by default:
 
-1. Open the VNC session and fill in what it names as missing: first name, last name, address, postal code and city.
-2. Answer **"Are you exempt from paying consumption tax?"** with **No**, unless you genuinely have a tax number. With one on the account, the bot leaves that section alone.
+1. Open the VNC session and fill in what it names as missing: first name, last name, address, postal code and city, and the state or province where Unity asks for one.
+2. Answer **"Are you exempt from paying consumption tax?"** with **No**, unless you genuinely have a tax number. With one on the account, the bot leaves that section alone. Unity asks this only in some countries, US accounts do not see it.
 3. Leave the page as it is, the bot applies the coupon and finishes the claim in the same session.
 
 Unity keeps this on your account, so every later week runs unattended. Missing the window is not a failure: the asset is reported as `skipped:setup`, the rest of the run carries on, and the next run tries again (each giveaway lasts a week).

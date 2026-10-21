@@ -191,3 +191,11 @@ class TestCheckoutOrdersOnlyAtZero:
 
     def test_the_total_may_arrive_after_a_moment(self):
         assert self._checkout("Loading your order", "Total €0.00 Place Order") == (True, ["Place Order"])
+
+    def test_the_newer_checkout_without_a_total_line_is_ordered(self):
+        # Live, 20.10: all three free assets stopped here as "failed:checkout".
+        text = ("Checkout N N*** Armored Stone Golem - Dark Fantasy Boss PLN 0.00 This is free. "
+                "Add it to your library to get started. Add to library")
+        stub = self._Stub([text])
+        assert asyncio.run(FabClaimer._complete_checkout(stub, "Armored Stone Golem - Dark Fantasy Boss")) is True
+        assert stub.clicked == ["Place Order"]

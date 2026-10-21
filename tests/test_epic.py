@@ -16,7 +16,8 @@ import nodriver as uc
 import pytest
 
 from src.core.claimer import account_key, older_than
-from src.stores.epic import URL_CLAIM, EpicGamesClaimer, text_finder, tile_finder
+from src.stores.epic import (SAVED_ACCOUNT_FINDER, URL_CLAIM, EpicGamesClaimer, saved_account_finder, text_finder,
+                             tile_finder)
 from src.stores.epic import (PAGE_STATE_JS, checkout_total_is_zero, is_owned, is_region_locked,
                              offers_a_purchase, region_locked_status, title_from_slug)
 
@@ -188,17 +189,210 @@ class TestBackupCodeScreen:
 
 
 class TestAccountPicker:
-    """After a half-finished sign-in Epic asks which account to continue with."""
+    """After a half-finished sign-in Epic asks which saved account to continue with, with or without credentials."""
 
     SOURCE = (Path(__file__).resolve().parent.parent / "src" / "stores" / "epic.py").read_text(encoding="utf-8")
 
-    def test_the_login_loop_answers_it(self):
-        assert "/id/login/switch-account" in self.SOURCE
+    def test_it_looks_for_your_address_in_lower_case(self):
+        assert json.dumps("me@example.com") in saved_account_finder(" Me@Example.com ")
 
-    def test_it_clicks_the_account_tile(self):
-        # Verified live: that screen has no Continue button, only a list of accounts.
-        block = self.SOURCE.split("/id/login/switch-account", 1)[1][:700]
-        assert "[id^=\"account-\"]" in block
+    def test_without_an_address_it_looks_for_nothing_by_name(self):
+        assert "const want = \"\";" in saved_account_finder(None)
+
+    def test_it_only_acts_on_epics_login_pages_and_tiles_you_can_see(self):
+        finder = saved_account_finder("")
+        assert "'/id/login/'" in finder and "getBoundingClientRect" in finder and "__" not in finder
+
+    def test_several_accounts_and_no_match_is_never_a_guess(self):
+        # The old fallback took the first tile, which could claim on someone else's account.
+        assert "tiles.length === 1 ? tiles[0] : null" in SAVED_ACCOUNT_FINDER
+        assert SAVED_ACCOUNT_FINDER.count("tiles[0]") == 1
+
+    def test_the_other_buttons_on_the_list_are_never_matched(self):
+        # Seen live under the tiles: "Use another account" would start a fresh sign-in, so it must stay out of reach.
+        assert "querySelectorAll('[id^=\"account-\"]')" in SAVED_ACCOUNT_FINDER
+        assert not any(name.startswith("account-") for name in ("use-different-account", "manage-accounts"))
+
+    @pytest.mark.parametrize("email,masked", [
+        ("Pawel.Mail@Gmail.com", "p***l@gmail.com"),
+        (" ab@x.com ", "a***b@x.com"),
+        ("not-an-address", ""),
+        (None, ""),
+    ])
+    def test_the_address_is_matched_the_way_epic_masks_it(self, email, masked):
+        # Live, 21.10: the tile read "x***x@xxxxx.xxx", so the full EG_EMAIL alone never matched.
+        from src.stores.epic import masked_email
+        assert masked_email(email) == masked
+        if masked:
+            assert json.dumps(masked) in saved_account_finder(email)
+
+    def test_with_an_address_a_lone_tile_of_another_account_is_not_taken(self):
+        # Live, 21.10: a profile remembering one account signed in there although EG_EMAIL named another.
+        with_address, without = SAVED_ACCOUNT_FINDER.split("if (want) {", 1)[1].split(
+            "return hits.length === 1 ? hits[0] : null;", 1)
+        assert "tiles[0]" not in with_address and "return tiles.length === 1 ? tiles[0] : null;" in without
+
+    def test_the_tile_is_clicked_with_the_mouse(self, monkeypatch):
+        from src.stores import epic as epic_module
+
+        monkeypatch.setattr(epic_module.cfg, "eg_email", "me@example.com")
+        calls = []
+
+        async def click(finder, label, allow_script=False, tries=1):
+            calls.append((finder, label, allow_script, tries))
+            return True
+
+        claimer = SimpleNamespace(_cdp_click_found=click)
+        assert asyncio.run(EpicGamesClaimer._pick_saved_account(claimer, wait=10)) is True
+        assert calls == [(saved_account_finder("me@example.com"), "saved account", True, 10)]
+
+    def test_no_list_is_no_pick(self):
+        async def click(finder, label, allow_script=False, tries=1):
+            return False
+
+        assert asyncio.run(EpicGamesClaimer._pick_saved_account(SimpleNamespace(_cdp_click_found=click))) is False
+
+    def test_the_login_loop_answers_it_before_the_code_screen(self):
+        # Epic can show the list on the MFA address, which the code screen check would take for itself.
+        block = self.SOURCE.split("otp_tried = 0", 1)[1]
+        assert block.index("await self._pick_saved_account()") < block.index("await self._mfa_prompt_present()")
+
+
+class TestSigningInWithoutCredentials:
+    """Without EG_EMAIL and EG_PASSWORD a saved account is picked, and you are only asked when that does not sign in."""
+
+    class _Page:
+        def __init__(self, signed_in_after):
+            # How many sign-in checks after the pick until Epic's redirect lands on the store; None never.
+            self.signed_in_after, self.picked, self.checks_since_pick = signed_in_after, False, 0
+
+        async def get(self, url):
+            pass
+
+        async def evaluate(self, script):
+            if "isloggedin" not in script:
+                return ""
+            if not self.picked:
+                return False
+            self.checks_since_pick += 1
+            return self.signed_in_after is not None and self.checks_since_pick >= self.signed_in_after
+
+    def _sign_in(self, tmp_path, monkeypatch, picker=True, signed_in_after=1):
+        from src.core import claimer as claimer_module
+        from src.stores import epic as epic_module
+
+        monkeypatch.setattr(claimer_module.cfg, "_data_dir", tmp_path)
+        monkeypatch.setattr(epic_module.cfg, "eg_email", None)
+        monkeypatch.setattr(epic_module.cfg, "eg_password", None)
+        claimer = EpicGamesClaimer()
+        claimer.page = page = self._Page(signed_in_after)
+        claimer.vnc_waits, claimer.picks = [], []
+
+        async def nothing(*args, **kwargs):
+            return False
+
+        async def pick(wait=1):
+            claimer.picks.append(wait)
+            page.picked = picker
+            return picker
+
+        async def vnc(check_fn, **kwargs):
+            claimer.vnc_waits.append(check_fn)
+            return False
+
+        claimer.sleep = claimer._human_challenge_present = claimer._navigate_organically_to_login = nothing
+        claimer._pick_saved_account, claimer._wait_for_vnc_login = pick, vnc
+        return claimer, asyncio.run(claimer._ensure_logged_in())
+
+    def test_a_picked_account_signs_in_without_waking_you(self, tmp_path, monkeypatch):
+        claimer, signed_in = self._sign_in(tmp_path, monkeypatch, signed_in_after=3)
+        assert signed_in is True and claimer.picks == [10] and claimer.vnc_waits == []
+
+    def test_a_pick_that_never_lands_still_asks_you(self, tmp_path, monkeypatch):
+        claimer, signed_in = self._sign_in(tmp_path, monkeypatch, signed_in_after=None)
+        assert signed_in is False and len(claimer.vnc_waits) == 1
+        assert claimer.page.checks_since_pick == 15
+
+    def test_no_list_asks_you_straight_away(self, tmp_path, monkeypatch):
+        claimer, signed_in = self._sign_in(tmp_path, monkeypatch, picker=False)
+        assert signed_in is False and len(claimer.vnc_waits) == 1 and claimer.page.checks_since_pick == 0
+
+
+class TestSigningInWithCredentials:
+    """The login loop looks for the saved-account list only where Epic shows it, and hands you an unclear choice."""
+
+    LOGIN = "https://www.epicgames.com/id/login?lang=en-US"
+    SWITCH = "https://www.epicgames.com/id/login/switch-account"
+
+    class _Page:
+        def __init__(self, url):
+            self.url = url
+
+        async def get(self, url):
+            pass
+
+        async def evaluate(self, script):
+            if "window.location.href" in script:
+                return self.url
+            return False if "isloggedin" in script else ""
+
+    def _sign_in(self, tmp_path, monkeypatch, url, other_account=False):
+        from src.core import claimer as claimer_module
+        from src.stores import epic as epic_module
+
+        monkeypatch.setattr(claimer_module.cfg, "_data_dir", tmp_path)
+        monkeypatch.setattr(epic_module.cfg, "eg_email", "me@example.com")
+        monkeypatch.setattr(epic_module.cfg, "eg_password", "secret")
+        claimer = EpicGamesClaimer()
+        claimer.page = self._Page(url)
+        claimer.picks, claimer.logins, claimer.notices = 0, 0, []
+
+        async def nothing(*args, **kwargs):
+            return False
+
+        async def pick(wait=1):
+            claimer.picks += 1
+            return False
+
+        async def login():
+            claimer.logins += 1
+
+        async def vnc(check_fn, custom_msg=None, **kwargs):
+            claimer.notices.append(custom_msg)
+            return False
+
+        claimer.sleep = claimer._human_challenge_present = claimer._navigate_organically_to_login = nothing
+        claimer._mfa_prompt_present = claimer._press_sign_in = nothing
+        claimer._pick_saved_account, claimer._do_stealth_login, claimer._wait_for_vnc_login = pick, login, vnc
+        claimer.other_account = 0
+
+        async def click(finder, label, allow_script=False, tries=1):
+            claimer.other_account += label == "use another account"
+            return other_account
+
+        claimer._cdp_click_found = click
+        return claimer, asyncio.run(claimer._ensure_logged_in())
+
+    def test_the_password_page_is_not_searched_for_the_list(self, tmp_path, monkeypatch):
+        # Each search that finds nothing writes a debug line, once a second for the whole wait.
+        claimer, _ = self._sign_in(tmp_path, monkeypatch, self.LOGIN)
+        assert claimer.picks == 0 and claimer.logins == 3
+
+    def test_an_account_it_cannot_pick_is_handed_to_you_at_once(self, tmp_path, monkeypatch):
+        claimer, signed_in = self._sign_in(tmp_path, monkeypatch, self.SWITCH)
+        assert signed_in is False and claimer.logins == 1 and claimer.picks == 5
+        assert len(claimer.notices) == 1 and "pick your account" in claimer.notices[0]
+
+    def test_another_account_is_signed_in_with_credentials_before_asking_you(self, tmp_path, monkeypatch):
+        # None of the saved accounts is EG_EMAIL: a person would press "Use another account" and sign in.
+        claimer, _ = self._sign_in(tmp_path, monkeypatch, self.SWITCH, other_account=True)
+        assert claimer.logins == 2 and claimer.other_account == 1
+        assert len(claimer.notices) == 1 and "pick your account" in claimer.notices[0]
+
+    def test_the_code_screen_is_searched_only_when_tiles_are_there(self, tmp_path, monkeypatch):
+        # Each search that finds nothing writes a debug line, once a second on the code screen.
+        claimer, _ = self._sign_in(tmp_path, monkeypatch, "https://www.epicgames.com/id/login/mfa?lang=en-US")
+        assert claimer.picks == 0
 
 
 class TestRecoveryCodeBookkeeping:
@@ -348,6 +542,37 @@ class TestAPaidGameIsNeverOrdered:
     ])
     def test_only_a_total_of_zero_counts_as_free(self, text, free):
         assert checkout_total_is_zero(text) is free
+
+    # Fab, 20.10: Epic's newer checkout shows a free item with its price only, no total line, in any currency.
+    NEW = "Checkout N N*** {title} {price} {sentence} Add to library By selecting 'Add to library', you certify that you are over 18."
+
+    @pytest.mark.parametrize("price,sentence", [
+        ("PLN 0.00", "This is free. Add it to your library to get started."),
+        ("0,00 €", "Das ist kostenlos. Füge es deiner Bibliothek hinzu."),
+        ("$0.00", "This is free."),
+        ("0,00 zł", "To jest za darmo."),
+        ("R$ 0,00", "É grátis."),
+    ])
+    def test_the_newer_checkout_reads_free_in_any_currency_and_language(self, price, sentence):
+        text = self.NEW.format(title="Armored Stone Golem", price=price, sentence=sentence)
+        assert checkout_total_is_zero(text, "Armored Stone Golem") is True
+
+    def test_digits_in_the_title_are_not_a_price(self):
+        title = "AI Navigation Plugin v2.06"
+        text = self.NEW.format(title=title, price="PLN 0.00", sentence="This is free.")
+        assert checkout_total_is_zero(text, title) is True
+        # Without the title the bot cannot tell, so it stays on the side that never pays.
+        assert checkout_total_is_zero(text) is False
+
+    @pytest.mark.parametrize("price,free", [
+        ("PLN 79.99", False),
+        ("PLN 79.99 PLN 0.00", False),
+        ("1 234,56 zł", False),
+        ("", None),
+    ])
+    def test_the_newer_checkout_never_reads_a_price_as_free(self, price, free):
+        text = self.NEW.format(title="Golem", price=price, sentence="This is free.")
+        assert checkout_total_is_zero(text, "Golem") is free
 
     def test_a_selling_page_stops_before_anything_is_clicked(self):
         stop = self.CLAIM.index("if offers_a_purchase(state):")

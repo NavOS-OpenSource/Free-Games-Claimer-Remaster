@@ -205,7 +205,7 @@ class TestEpicLeavesTheChallengeOnScreen:
 
     def test_a_captcha_hands_over_before_any_navigation(self):
         loop = self.SOURCE.split("The wait loop can also run out of time", 1)[1]
-        handover = loop.index("if mfa_manual or challenge_blocked:")
+        handover = loop.index("if mfa_manual or challenge_blocked")
         assert handover < loop.index("await self.page.get(URL_CLAIM)")
 
 
@@ -275,6 +275,7 @@ class TestAWaitThatNeverAsks:
 
     class _Stub:
         logger = logging.getLogger("test")
+        store_name = "epic"
 
         def __init__(self, present):
             self.present, self.asked = list(present), False
@@ -302,3 +303,15 @@ class TestAWaitThatNeverAsks:
 
     def test_a_check_that_passes_by_itself_counts_either_way(self):
         assert self._wait([False], ask=False, settle=2) == (True, False)
+
+    def test_a_store_nobody_answered_is_not_asked_again_nor_said_to_be(self, caplog):
+        # IndieGala, 20.10: the log said "requesting manual solve via VNC" again after nobody answered the first time.
+        from src.core import run_state
+        run_state.reset_run_state()
+        run_state.mark_unanswered("epic")
+        try:
+            with caplog.at_level(logging.WARNING, logger="test"):
+                assert self._wait([], ask=True) == (False, False)
+            assert not any("requesting manual solve" in r.getMessage() for r in caplog.records)
+        finally:
+            run_state.reset_run_state()

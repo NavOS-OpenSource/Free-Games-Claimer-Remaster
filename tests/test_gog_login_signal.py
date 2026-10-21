@@ -8,6 +8,8 @@ that way; the live browser proved both states, this pins the source.
 
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE = (ROOT / "src" / "stores" / "gog.py").read_text(encoding="utf-8")
 CHECK = SOURCE.split("async def _is_logged_in", 1)[1].split("\n        # First check", 1)[0]
@@ -50,11 +52,13 @@ class TestACodeGOGSaysIsBeingRedeemed:
     LOCKED = REDEEM.split("elif result_state == 'locked':", 1)[1].split("\n            else:", 1)[0]
 
     def test_the_message_is_its_own_state(self):
-        assert "currently being redeemed" in self.REDEEM and "return 'locked'" in self.REDEEM
-
-    def test_it_is_read_before_success_is_guessed(self):
+        from src.stores.gog import gog_redeem_outcome
         # "redeemed" in that sentence would otherwise pass for a successful redemption.
-        assert self.REDEEM.index("return 'locked'") < self.REDEEM.index("return 'success'")
+        page = "This code is currently being redeemed by someone. Try again later."
+        assert gog_redeem_outcome({"page": page, "msg": "currently being redeemed"}) == "locked"
+
+    def test_the_page_is_read_by_the_tested_function(self):
+        assert "gog_redeem_outcome(" in self.REDEEM
 
     def test_the_sign_in_is_checked_and_the_code_tried_once_more(self):
         assert "self._ensure_logged_in()" in self.LOCKED
@@ -77,3 +81,27 @@ class TestADryRunRedeemsNothing:
     def test_it_is_listed_as_a_dry_run(self):
         block = self.REDEEM.split("if cfg.dryrun:", 1)[1].split("return", 1)[0]
         assert '"available (dry run)"' in block
+
+
+class TestWhatTheRedeemPageSays:
+    """Audit: "already redeemed" also carries "redeemed", and was reported as a code just redeemed."""
+
+    @pytest.mark.parametrize("texts,outcome", [
+        ({"msg": "This code has already been redeemed."}, "already"),
+        ({"msg": "Ten kod został już wykorzystany."}, "already"),
+        ({"h1": "Success!", "msg": "Your code was redeemed."}, "success"),
+        ({"msg": "Kod zrealizowano"}, "success"),
+        ({"h1": "Success!", "body": "Already have a GOG GALAXY account?"}, "success"),
+        ({"body": "Your order is complete. Success!"}, "success"),
+        ({"body": "You already own this game."}, "already"),
+        ({}, "unknown"),
+        (None, "unknown"),
+    ])
+    def test_each_answer(self, texts, outcome):
+        from src.stores.gog import gog_redeem_outcome
+        assert gog_redeem_outcome(texts) == outcome
+
+    def test_an_unclear_answer_is_retried_not_handed_to_you(self):
+        # The row stays "claimed", so the next run redeems it again.
+        redeem = TestACodeGOGSaysIsBeingRedeemed.REDEEM
+        assert "check manually" not in redeem and redeem.count("(GOG, failed, trying again next run)") == 2

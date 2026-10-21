@@ -210,3 +210,67 @@ class TestMoneyGate:
     def test_a_faraway_number_is_not_the_total(self):
         # A stray phrase with no amount behind it must not read as free.
         assert parse_total("To pay now, please complete the form below and try again 0.00") == -1.0
+
+
+class TestTheCheckoutFormIsReadyInEveryCountry:
+    """Issue #89: US checkouts have no tax question, and the bot waited for it until it gave up."""
+
+    FILLED = {"sta[country]": "US", "sta[firstName]": "A", "sta[lastName]": "B", "sta[email]": "a@b.c",
+              "sta[streetAddress]": "1 Main St", "sta[postalCode]": "94016", "sta[locality]": "SF", "sta[region]": "CA"}
+
+    def _prepare(self, states):
+        import asyncio
+        from types import SimpleNamespace
+
+        answered = []
+
+        async def checkout_state():
+            return states.pop(0) if len(states) > 1 else states[0]
+
+        async def evaluate(script):
+            answered.append(script)
+            return True
+
+        async def sleep(seconds):
+            pass
+
+        async def manual(blockers):
+            return False
+
+        stub = SimpleNamespace(_checkout_state=checkout_state, sleep=sleep, _wait_for_manual_setup=manual,
+                               page=SimpleNamespace(evaluate=evaluate))
+        return asyncio.run(UnityClaimer._prepare_checkout(stub)), answered
+
+    def test_a_us_checkout_without_the_tax_question_goes_on(self):
+        ready, answered = self._prepare([{"present": True, "taxAsked": False, "regionVisible": True,
+                                          "fields": self.FILLED}])
+        assert ready is True and answered == []
+
+    def test_a_tax_question_that_renders_late_is_still_answered(self):
+        # EU checkouts start on "exempt: yes", which makes Unity refuse the coupon.
+        fields = {**self.FILLED, "sta[vat]": ""}
+        ready, answered = self._prepare([
+            {"present": True, "taxAsked": False, "fields": fields},
+            {"present": True, "taxAsked": True, "exempt": True, "fields": fields},
+            {"present": True, "taxAsked": True, "exempt": False, "fields": fields},
+        ])
+        assert ready is True and len(answered) == 1 and "vatRegistered" in answered[0]
+
+    def test_a_form_that_never_renders_is_not_called_incomplete(self):
+        ready, _ = self._prepare([{"present": False}])
+        assert ready is None
+
+    def test_a_form_that_never_renders_is_reported_as_failed(self):
+        source = (Path(__file__).resolve().parent.parent / "src" / "stores" / "unity.py").read_text(encoding="utf-8")
+        after = source.split("prepared = await self._prepare_checkout()", 1)[1][:400]
+        assert "if prepared is None:" in after and '"failed:checkout"' in after.split("if not prepared:", 1)[0]
+
+
+class TestOnlyBuyNowStartsTheCheckout:
+    """Audit: Add to cart never opens the checkout, it only left the asset in the cart every run."""
+
+    def test_add_to_cart_is_never_pressed(self):
+        source = (Path(__file__).resolve().parent.parent / "src" / "stores" / "unity.py").read_text(encoding="utf-8")
+        start = source.split("async def _start_checkout", 1)[1].split("\n    async def ", 1)[0]
+        clicker = start.split('"""')[3]  # the script that picks the button
+        assert "/^buy now$/i" in clicker and "add to cart" not in clicker.lower()

@@ -6,6 +6,7 @@ away, which is what made entering a code by hand impossible.
 """
 
 import asyncio
+import re
 from pathlib import Path
 
 import pytest
@@ -137,3 +138,29 @@ class TestAFailedSignInStopsTheRun:
     def test_the_summary_hears_about_it_too(self):
         run = self.SOURCE.split("async def run", 1)[1].split("\n    async def ", 1)[0]
         assert 'needs_you(self.store_name, 0, "game")' in run
+
+
+class TestACodeNotReadIsLookedForAgain:
+    """Audit: a game claimed before its code showed was saved as claimed and never visited again."""
+
+    SOURCE = (ROOT / "src" / "stores" / "prime.py").read_text(encoding="utf-8")
+    TILES = re.search(r'stats_raw = await self\.page\.evaluate\(\s*(rf"""[\s\S]*?""")', SOURCE).group(1)
+    EXTERNAL = SOURCE.split("async def _claim_single_external", 1)[1].split("\n    async def ", 1)[0]
+
+    def _script(self, force, missing):
+        import json
+        return eval(self.TILES, {"force_check_str": force, "json": json, "missing_code": missing})
+
+    def test_the_tiles_waiting_for_a_code_reach_the_page_script(self):
+        script = self._script("false", ['A "quoted" title', "Other"])
+        assert 'new Set(["A \\"quoted\\" title", "Other"])' in script
+        # Checked live in Chrome: an unread code comes back, a known one and a new game behave as before.
+        assert "if (targetIsHowToPlay && !forceCheck && !recheck.has(titleText)) return;" in script
+
+    def test_a_missing_code_is_marked_and_a_found_one_unmarks_it(self):
+        flat = " ".join(self.EXTERNAL.split())
+        assert "if not link_needed and not obj.code: obj.status = NO_CODE" in flat
+        assert "if obj.status == NO_CODE: obj.status = \"claimed\"" in flat
+
+    def test_the_dead_filter_is_gone(self):
+        assert "existing_codes_map" not in self.SOURCE

@@ -174,3 +174,11 @@ class TestNeededYouArrivesWithoutGames:
 
     def test_the_summary_is_built_when_only_a_store_waited(self):
         assert "if cfg.notify_summary and (aggregated_results or waiting_for_you()):" in self.SOURCE
+
+
+class TestTheRunBannerNamesEverySite:
+    """Logs, 20.10: the sites GamerPower claims showed as "fanatical, indiegala, itchio" in the run's first line."""
+
+    def test_sites_go_through_their_display_names(self):
+        banner = MAIN_PY.read_text(encoding="utf-8").split("Starting claiming run", 1)[1][:200]
+        assert "_KEY_TO_DISPLAY.get(k, k) for k in sides" in banner
