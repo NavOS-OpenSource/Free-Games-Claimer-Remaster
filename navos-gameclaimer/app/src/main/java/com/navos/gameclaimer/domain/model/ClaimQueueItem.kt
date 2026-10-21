@@ -135,6 +135,10 @@ data class ClaimQueueItem(
 
 /**
  * State of a claim queue item.
+ * 
+ * GPT SAFETY REQUIREMENT:
+ * - UNCERTAIN state is for items where claim execution may have reached the store
+ *   but we don't have confirmation. These MUST NOT automatically retry.
  */
 @Serializable
 enum class ClaimQueueState {
@@ -144,7 +148,7 @@ enum class ClaimQueueState {
     /** Currently being processed */
     IN_PROGRESS,
     
-    /** Waiting for retry after transient failure */
+    /** Waiting for retry after transient failure (pre-claim only) */
     RETRY_SCHEDULED,
     
     /** Successfully claimed - terminal state */
@@ -160,7 +164,38 @@ enum class ClaimQueueState {
     CANCELLED,
     
     /** Discovery-only adapter, cannot claim - terminal state */
-    NOT_SUPPORTED
+    NOT_SUPPORTED,
+    
+    /**
+     * UNCERTAIN: Claim execution may have reached the store but we lost confirmation.
+     * 
+     * GPT CRITICAL SAFETY STATE:
+     * - Used when: timeout after possible submission, process crash during claim,
+     *   interrupted IN_PROGRESS on recovery
+     * - MUST NOT automatically retry (could duplicate side effect at store)
+     * - Requires manual verification or reconciliation before any action
+     * - User must explicitly resolve (verify ownership, then mark complete/retry)
+     */
+    UNCERTAIN;
+    
+    /**
+     * Whether this is a terminal state (no more automatic processing).
+     */
+    val isTerminal: Boolean
+        get() = this in setOf(COMPLETED, FAILED, CANCELLED, NOT_SUPPORTED)
+    
+    /**
+     * Whether this state can be automatically retried.
+     * UNCERTAIN is explicitly excluded - it requires manual resolution.
+     */
+    val canAutoRetry: Boolean
+        get() = this == RETRY_SCHEDULED
+    
+    /**
+     * Whether this state requires user intervention.
+     */
+    val requiresUserAction: Boolean
+        get() = this in setOf(BLOCKED_USER_ACTION, UNCERTAIN)
 }
 
 /**
@@ -173,6 +208,7 @@ data class ClaimQueueSummary(
     val completedCount: Int,
     val failedCount: Int,
     val blockedCount: Int,
+    val uncertainCount: Int,
     val totalCount: Int
 ) {
     val activeCount: Int
@@ -180,4 +216,8 @@ data class ClaimQueueSummary(
     
     val terminalCount: Int
         get() = completedCount + failedCount
+    
+    /** Items requiring user attention (blocked + uncertain) */
+    val requiresAttentionCount: Int
+        get() = blockedCount + uncertainCount
 }

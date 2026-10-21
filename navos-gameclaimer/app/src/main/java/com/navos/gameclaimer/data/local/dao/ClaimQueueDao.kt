@@ -216,37 +216,84 @@ abstract class ClaimQueueDao {
     /**
      * Reset stuck IN_PROGRESS items (e.g., after crash).
      * 
+     * GPT SAFETY REQUIREMENT:
      * Items that have been IN_PROGRESS for longer than the timeout
-     * are reset to RETRY_SCHEDULED (if retries remain) or FAILED.
+     * are reset to UNCERTAIN - they require manual verification because
+     * the claim request may have been submitted to the store.
      * 
-     * @param timeoutMs How long an item can be IN_PROGRESS before considered stuck
+     * @param stuckThreshold Timestamp before which items are considered stuck
      * @return Number of items reset
      */
     @Query("""
         UPDATE claim_queue SET 
-            state = CASE 
-                WHEN attemptCount >= maxAttempts THEN 'FAILED'
-                ELSE 'RETRY_SCHEDULED'
-            END,
-            scheduledAt = :rescheduleAt,
+            state = 'UNCERTAIN',
             version = version + 1
         WHERE state = 'IN_PROGRESS'
         AND lastAttemptAt IS NOT NULL
         AND lastAttemptAt < :stuckThreshold
     """)
-    abstract suspend fun resetStuckItems(stuckThreshold: Long, rescheduleAt: Long): Int
+    abstract suspend fun resetStuckItems(stuckThreshold: Long): Int
     
     /**
-     * Mark all IN_PROGRESS items as needing recovery.
+     * Mark all IN_PROGRESS items as UNCERTAIN on startup.
      * 
-     * Called on app startup to handle items that were interrupted.
+     * GPT CRITICAL SAFETY REQUIREMENT:
+     * On app startup, ANY interrupted IN_PROGRESS items must become UNCERTAIN,
+     * NOT automatically retried. The claim request may have reached the store
+     * before the app crashed/was killed, so retrying could duplicate the claim.
+     * 
+     * UNCERTAIN items:
+     * - Are NOT included in getReadyItems() queries
+     * - Require manual user verification before any action
+     * - User must explicitly confirm ownership or allow retry
      */
     @Query("""
         UPDATE claim_queue SET 
-            state = 'RETRY_SCHEDULED',
-            scheduledAt = :now,
+            state = 'UNCERTAIN',
             version = version + 1
         WHERE state = 'IN_PROGRESS'
     """)
-    abstract suspend fun recoverInterruptedItems(now: Long = System.currentTimeMillis()): Int
+    abstract suspend fun recoverInterruptedItems(): Int
+    
+    /**
+     * Get items in UNCERTAIN state requiring user verification.
+     */
+    @Query("SELECT * FROM claim_queue WHERE state = 'UNCERTAIN' ORDER BY enqueuedAt DESC")
+    abstract fun getUncertainItems(): Flow<List<ClaimQueueEntity>>
+    
+    /**
+     * Count UNCERTAIN items requiring verification.
+     */
+    @Query("SELECT COUNT(*) FROM claim_queue WHERE state = 'UNCERTAIN'")
+    abstract suspend fun countUncertain(): Int
+    
+    /**
+     * Manually resolve an UNCERTAIN item after user verification.
+     * 
+     * This is the ONLY way to move an item out of UNCERTAIN state.
+     * The user must verify the claim status at the store first.
+     * 
+     * @param queueId The item to resolve
+     * @param verified True if user confirmed ownership, false to allow retry
+     * @param expectedVersion For optimistic locking
+     * @return Number of rows updated (0 = conflict, 1 = success)
+     */
+    @Query("""
+        UPDATE claim_queue SET 
+            state = CASE 
+                WHEN :verified THEN 'COMPLETED'
+                ELSE 'RETRY_SCHEDULED'
+            END,
+            scheduledAt = :scheduledAt,
+            version = version + 1
+        WHERE queueId = :queueId 
+        AND state = 'UNCERTAIN'
+        AND version = :expectedVersion
+    """)
+    abstract suspend fun resolveUncertainItem(
+        queueId: String,
+        verified: Boolean,
+        scheduledAt: Long,
+        expectedVersion: Int
+    ): Int
 }

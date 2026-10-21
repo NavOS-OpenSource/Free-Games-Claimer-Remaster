@@ -406,16 +406,70 @@ class ClaimWorker(
             }
         }
         
+        // GPT SAFETY REQUIREMENT: Track claim execution state
+        // Exceptions AFTER claim submission must become UNCERTAIN, not retryable
+        var claimSubmissionStarted = false
+        
         // Attempt the claim
         val claimResult = try {
+            // Mark that we're about to submit the claim request
+            // Any exception after this point means the claim MAY have been processed
+            claimSubmissionStarted = true
             adapter.claim(giveaway)
-        } catch (e: Exception) {
-            // Network or unexpected error
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Cancellation/timeout after claim submission = UNCERTAIN
+            // We don't know if the store processed it
+            android.util.Log.w("ClaimWorker", "Claim cancelled/timed out for ${entity.giveawayId}", e)
+            null // Will be handled as UNCERTAIN below
+        } catch (e: java.net.SocketTimeoutException) {
+            // Timeout after claim submission = UNCERTAIN
+            android.util.Log.w("ClaimWorker", "Claim timed out for ${entity.giveawayId}", e)
+            null // Will be handled as UNCERTAIN below
+        } catch (e: java.io.InterruptedIOException) {
+            // IO interruption = UNCERTAIN
+            android.util.Log.w("ClaimWorker", "Claim interrupted for ${entity.giveawayId}", e)
+            null // Will be handled as UNCERTAIN below
+        } catch (e: java.net.ConnectException) {
+            // Connection failed BEFORE request sent = safe to retry
+            // This is a pre-submission failure
             ClaimResult.Failed(
                 giveawayId = entity.giveawayId,
-                reason = e.message ?: "Unknown error during claim",
+                reason = "Connection failed: ${e.message}",
                 isRetryable = true
             )
+        } catch (e: java.net.UnknownHostException) {
+            // DNS resolution failed = safe to retry (no request sent)
+            ClaimResult.Failed(
+                giveawayId = entity.giveawayId,
+                reason = "Network unavailable: ${e.message}",
+                isRetryable = true
+            )
+        } catch (e: Exception) {
+            // Unknown exception after claim submission = UNCERTAIN
+            // We cannot prove the store didn't process the claim
+            android.util.Log.w("ClaimWorker", "Claim failed with exception for ${entity.giveawayId}", e)
+            if (claimSubmissionStarted) {
+                null // Will be handled as UNCERTAIN below
+            } else {
+                // Should not happen, but treat pre-submission errors as retryable
+                ClaimResult.Failed(
+                    giveawayId = entity.giveawayId,
+                    reason = e.message ?: "Unknown error",
+                    isRetryable = true
+                )
+            }
+        }
+        
+        // Handle UNCERTAIN case: claim may have been submitted but we lost response
+        if (claimResult == null) {
+            val outcome = ClaimOutcome.Uncertain(
+                giveawayId = entity.giveawayId,
+                attemptDescription = "Claim request for ${giveaway.title} on ${giveaway.store.displayName}",
+                uncertaintyReason = "Response was lost after claim submission (timeout, cancellation, or crash). " +
+                                   "The claim may have succeeded at the store. Please verify ownership before retrying."
+            )
+            updateQueueWithOutcome(entity, outcome, ClaimQueueState.UNCERTAIN)
+            return outcome
         }
         
         // Convert ClaimResult to ClaimOutcome and update state
@@ -492,6 +546,8 @@ class ClaimWorker(
             outcome.isTerminalFailure -> ClaimQueueState.FAILED
             outcome.isDiscoveryOnly -> ClaimQueueState.NOT_SUPPORTED
             outcome is ClaimOutcome.Cancelled -> ClaimQueueState.CANCELLED
+            // GPT SAFETY: Uncertain outcomes MUST go to UNCERTAIN state, not retry
+            outcome is ClaimOutcome.Uncertain -> ClaimQueueState.UNCERTAIN
             outcome.requiresUserAction -> ClaimQueueState.BLOCKED_USER_ACTION
             outcome.isRetryable -> {
                 // Check if we've exhausted retries

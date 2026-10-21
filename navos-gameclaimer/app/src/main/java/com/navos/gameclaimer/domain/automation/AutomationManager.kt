@@ -302,6 +302,7 @@ class AutomationManager(
             completedCount = claimQueueDao.countByState(ClaimQueueState.COMPLETED.name),
             failedCount = claimQueueDao.countByState(ClaimQueueState.FAILED.name),
             blockedCount = claimQueueDao.countByState(ClaimQueueState.BLOCKED_USER_ACTION.name),
+            uncertainCount = claimQueueDao.countByState(ClaimQueueState.UNCERTAIN.name),
             totalCount = claimQueueDao.countByState(ClaimQueueState.PENDING.name) +
                         claimQueueDao.countByState(ClaimQueueState.IN_PROGRESS.name) +
                         claimQueueDao.countByState(ClaimQueueState.RETRY_SCHEDULED.name) +
@@ -309,7 +310,8 @@ class AutomationManager(
                         claimQueueDao.countByState(ClaimQueueState.FAILED.name) +
                         claimQueueDao.countByState(ClaimQueueState.BLOCKED_USER_ACTION.name) +
                         claimQueueDao.countByState(ClaimQueueState.CANCELLED.name) +
-                        claimQueueDao.countByState(ClaimQueueState.NOT_SUPPORTED.name)
+                        claimQueueDao.countByState(ClaimQueueState.NOT_SUPPORTED.name) +
+                        claimQueueDao.countByState(ClaimQueueState.UNCERTAIN.name)
         )
     }
     
@@ -343,7 +345,14 @@ class AutomationManager(
      * Reset stuck items (called on app startup).
      * 
      * Items that were IN_PROGRESS when the app was killed are reset
-     * to RETRY_SCHEDULED (or FAILED if out of retries).
+     * Recover any interrupted claim operations.
+     * 
+     * GPT SAFETY REQUIREMENT:
+     * Called on app startup to handle items that were IN_PROGRESS when app crashed.
+     * These items are moved to UNCERTAIN state (NOT retryable) because the claim
+     * request may have been submitted to the store before the crash.
+     * 
+     * UNCERTAIN items require manual user verification before any action.
      */
     suspend fun recoverFromCrash(): Int {
         return claimQueueDao.recoverInterruptedItems()

@@ -266,7 +266,8 @@ class ClaimQueueItemTest {
             ClaimQueueState.FAILED,
             ClaimQueueState.BLOCKED_USER_ACTION,
             ClaimQueueState.CANCELLED,
-            ClaimQueueState.NOT_SUPPORTED
+            ClaimQueueState.NOT_SUPPORTED,
+            ClaimQueueState.UNCERTAIN
         )
         
         assertEquals(expected.size, ClaimQueueState.values().size)
@@ -286,6 +287,7 @@ class ClaimQueueItemTest {
             completedCount = 10,
             failedCount = 1,
             blockedCount = 1,
+            uncertainCount = 0,
             totalCount = 22
         )
         
@@ -301,6 +303,7 @@ class ClaimQueueItemTest {
             completedCount = 10,
             failedCount = 4,
             blockedCount = 1,
+            uncertainCount = 0,
             totalCount = 25
         )
         
