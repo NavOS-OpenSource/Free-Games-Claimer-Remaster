@@ -208,8 +208,8 @@ class StoreAdapterTest {
         
         val adapters = factory.getAllAdapters()
         
-        // Phase 9: Now includes Prime Gaming (6 total)
-        assertEquals(6, adapters.size)
+        // Phase 10: Now includes Microsoft Store and Ubisoft (8 total)
+        assertEquals(8, adapters.size)
         assertTrue(adapters.any { it.store == GameStore.STEAM })
         assertTrue(adapters.any { it.store == GameStore.GOG })
         assertTrue(adapters.any { it.store == GameStore.ITCH_IO })
@@ -247,8 +247,8 @@ class StoreAdapterTest {
         
         val discoveryAdapters = factory.getDiscoveryAdapters()
         
-        // Phase 9: All 6 adapters support discovery
-        assertEquals(6, discoveryAdapters.size)
+        // Phase 10: All 8 adapters support discovery
+        assertEquals(8, discoveryAdapters.size)
         assertTrue(discoveryAdapters.all { it.supportsDiscovery })
     }
     

@@ -41,6 +41,17 @@ enum class GameStore(
         displayName = "IndieGala",
         baseUrl = "https://www.indiegala.com",
         freeGamesPath = "/giveaways"
+    ),
+    // Phase 10 additions
+    MICROSOFT_STORE(
+        displayName = "Microsoft Store",
+        baseUrl = "https://www.xbox.com",
+        freeGamesPath = "/en-US/games/store"
+    ),
+    UBISOFT(
+        displayName = "Ubisoft",
+        baseUrl = "https://www.ubisoft.com",
+        freeGamesPath = "/en-us/games/free"
     );
 
     val freeGamesUrl: String

@@ -363,6 +363,50 @@ data class StoreAuthConfig(
                     "indiegala.com"
                 )
             )
+            
+            // Phase 10 additions
+            GameStore.MICROSOFT_STORE -> StoreAuthConfig(
+                store = store,
+                loginUrl = "https://login.live.com/",
+                logoutUrl = "https://login.live.com/logout.srf",
+                successUrlPatterns = listOf(
+                    "https://account.microsoft.com/",
+                    "https://www.xbox.com/"
+                ),
+                mfaUrlPatterns = listOf(
+                    "https://login.live.com/pp1200/",
+                    "https://account.live.com/identity/confirm"
+                ),
+                errorUrlPatterns = listOf(
+                    "https://login.live.com/?error="
+                ),
+                allowedDomains = listOf(
+                    "microsoft.com",
+                    "live.com",
+                    "xbox.com",
+                    "microsoftonline.com"
+                )
+            )
+            
+            GameStore.UBISOFT -> StoreAuthConfig(
+                store = store,
+                loginUrl = "https://connect.ubisoft.com/",
+                logoutUrl = "https://connect.ubisoft.com/logout",
+                successUrlPatterns = listOf(
+                    "https://account.ubisoft.com/",
+                    "https://www.ubisoft.com/account"
+                ),
+                mfaUrlPatterns = listOf(
+                    "https://connect.ubisoft.com/two-factor"
+                ),
+                errorUrlPatterns = listOf(
+                    "https://connect.ubisoft.com/?error="
+                ),
+                allowedDomains = listOf(
+                    "ubisoft.com",
+                    "ubi.com"
+                )
+            )
         }
     }
 }
