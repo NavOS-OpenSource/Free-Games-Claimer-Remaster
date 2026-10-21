@@ -30,6 +30,17 @@ enum class GameStore(
         displayName = "Prime Gaming",
         baseUrl = "https://gaming.amazon.com",
         freeGamesPath = "/home"
+    ),
+    // Phase 7 additions
+    ITCH_IO(
+        displayName = "Itch.io",
+        baseUrl = "https://itch.io",
+        freeGamesPath = "/games/on-sale"  // No dedicated free games page
+    ),
+    INDIEGALA(
+        displayName = "IndieGala",
+        baseUrl = "https://www.indiegala.com",
+        freeGamesPath = "/giveaways"
     );
 
     val freeGamesUrl: String

@@ -326,6 +326,43 @@ data class StoreAuthConfig(
                     "gaming.amazon.com"
                 )
             )
+            
+            // Phase 7 additions
+            GameStore.ITCH_IO -> StoreAuthConfig(
+                store = store,
+                loginUrl = "https://itch.io/login",
+                logoutUrl = "https://itch.io/logout",
+                successUrlPatterns = listOf(
+                    "https://itch.io/my-purchases",
+                    "https://itch.io/my-collections"
+                ),
+                mfaUrlPatterns = listOf(
+                    "https://itch.io/login/totp"
+                ),
+                errorUrlPatterns = listOf(
+                    "https://itch.io/login?error="
+                ),
+                allowedDomains = listOf(
+                    "itch.io"
+                )
+            )
+            
+            GameStore.INDIEGALA -> StoreAuthConfig(
+                store = store,
+                loginUrl = "https://www.indiegala.com/login",
+                logoutUrl = "https://www.indiegala.com/logout",
+                successUrlPatterns = listOf(
+                    "https://www.indiegala.com/library",
+                    "https://www.indiegala.com/profile"
+                ),
+                mfaUrlPatterns = emptyList(), // IndieGala MFA patterns unknown
+                errorUrlPatterns = listOf(
+                    "https://www.indiegala.com/login?error="
+                ),
+                allowedDomains = listOf(
+                    "indiegala.com"
+                )
+            )
         }
     }
 }

@@ -318,16 +318,27 @@ class DefaultUrlValidator : UrlValidator {
      * - "epicgames.com" does NOT match: fakeepicgames.com (different domain)
      */
     private val trustedClaimDomains = setOf(
+        // Epic Games
         "store.epicgames.com",
         "epicgames.com",
+        // Steam (Phase 7)
         "store.steampowered.com",
         "steampowered.com",
+        "steamcommunity.com",
+        // GOG (Phase 7)
         "gog.com",
+        "login.gog.com",
+        "menu.gog.com",
+        // Amazon Prime Gaming
         "amazon.com",
         "gaming.amazon.com",
+        // GamerPower (discovery aggregator)
         "gamerpower.com",  // Redirect page - final destination must be re-validated
+        // IndieGala (Phase 7)
         "indiegala.com",
+        // Itch.io (Phase 7) - Note: developer.itch.io subdomains also valid
         "itch.io",
+        // HumbleBundle
         "humblebundle.com"
     )
     
