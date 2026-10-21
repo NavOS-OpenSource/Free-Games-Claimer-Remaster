@@ -35,6 +35,29 @@ data class AutomationSettings(
     /** Last modified timestamp */
     val lastModifiedAt: Long = System.currentTimeMillis()
 ) {
+    companion object {
+        /** Default settings instance */
+        val DEFAULT = AutomationSettings()
+    }
+    
+    // Phase 14: Convenience accessors
+    
+    /** Discovery interval in hours */
+    val discoveryIntervalHours: Int
+        get() = discoverySettings.intervalHours.toInt()
+    
+    /** Claim interval in hours */
+    val claimIntervalHours: Int
+        get() = claimSettings.intervalHours.toInt()
+    
+    /** Whether WiFi is required for operations */
+    val requireWifi: Boolean
+        get() = discoverySettings.wifiOnly || claimSettings.wifiOnly
+    
+    /** Whether to respect charging state */
+    val requireCharging: Boolean
+        get() = false // Could be added to settings if needed
+    
     /**
      * Whether automation is effectively enabled for a specific store.
      */

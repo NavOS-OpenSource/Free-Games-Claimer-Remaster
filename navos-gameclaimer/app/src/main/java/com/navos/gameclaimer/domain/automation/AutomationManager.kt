@@ -357,4 +357,38 @@ class AutomationManager(
     suspend fun recoverFromCrash(): Int {
         return claimQueueDao.recoverInterruptedItems()
     }
+    
+    // ===== Settings =====
+    
+    /**
+     * Current automation settings.
+     * In-memory cache - will be persisted in Phase 14 DataStore integration.
+     */
+    private var currentSettings = AutomationSettings.DEFAULT
+    
+    /**
+     * Get current automation settings.
+     */
+    fun getSettings(): AutomationSettings {
+        return currentSettings
+    }
+    
+    /**
+     * Update automation settings and reschedule workers if needed.
+     * 
+     * Does NOT cancel existing queue data when disabling automation.
+     */
+    suspend fun updateSettings(settings: AutomationSettings) {
+        val previousEnabled = currentSettings.automationEnabled
+        currentSettings = settings
+        
+        // Reschedule discovery if interval changed and automation is enabled
+        if (settings.automationEnabled) {
+            if (settings.discoveryIntervalHours != DiscoveryWorker.DEFAULT_REPEAT_INTERVAL_HOURS.toInt()) {
+                scheduleDiscovery(settings.discoveryIntervalHours.toLong())
+            }
+        }
+        
+        // TODO: Persist to DataStore
+    }
 }
