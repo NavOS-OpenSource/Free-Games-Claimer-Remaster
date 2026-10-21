@@ -171,46 +171,58 @@ class AuthRepositoryImpl(
         // Calling removeAllCookies() will sign out ALL stores, not just this one.
         // We cannot do per-store cookie removal reliably.
         
-        // Clear in-memory state for requested store
-        sessions.remove(store)
-        authStates[store]?.value = AuthSessionState.LOGGED_OUT
-        
-        // Clear persisted session for requested store
+        // Clear persisted session for requested store FIRST
+        // This ensures we don't have stale DB state
         sessionDao.delete(store.name)
         
-        // Clear ALL cookies - this affects ALL stores
-        // This is documented behavior, not a bug
-        clearAllCookies()
+        // Clear ALL cookies and WAIT for completion
+        // This is async - we must wait before updating state
+        val cookiesClearedSuccessfully = clearAllCookiesAndWait()
         
-        // Mark ALL stores as potentially logged out since cookies are shared
-        // This ensures we don't falsely report authentication for other stores
-        GameStore.entries.forEach { otherStore ->
-            if (otherStore != store) {
-                // Mark as EXPIRED to force re-verification, not LOGGED_OUT
-                // because we didn't explicitly log them out
-                if (sessions[otherStore] != null) {
-                    sessions.remove(otherStore)
-                    authStates[otherStore]?.value = AuthSessionState.EXPIRED
+        if (cookiesClearedSuccessfully) {
+            // Only update state AFTER cookies are confirmed cleared
+            sessions.remove(store)
+            authStates[store]?.value = AuthSessionState.LOGGED_OUT
+            
+            // Mark ALL stores as potentially logged out since cookies are shared
+            // This ensures we don't falsely report authentication for other stores
+            GameStore.entries.forEach { otherStore ->
+                if (otherStore != store) {
+                    // Mark as EXPIRED to force re-verification, not LOGGED_OUT
+                    // because we didn't explicitly log them out
+                    if (sessions[otherStore] != null) {
+                        sessions.remove(otherStore)
+                        authStates[otherStore]?.value = AuthSessionState.EXPIRED
+                    }
                 }
             }
+        } else {
+            // Cookie clearing failed - do NOT report logged out
+            // Mark as FAILED instead so user knows to retry
+            authStates[store]?.value = AuthSessionState.FAILED
         }
     }
     
     override suspend fun logoutAll() {
-        // Clear all in-memory state
-        sessions.clear()
-        GameStore.entries.forEach { store ->
-            authStates[store]?.value = AuthSessionState.LOGGED_OUT
-        }
-        
-        // Clear all persisted sessions
+        // Clear all persisted sessions first
         sessionDao.deleteAll()
         
-        // Clear all cookies
-        clearAllCookies()
+        // Clear all cookies and wait for completion
+        val cookiesClearedSuccessfully = clearAllCookiesAndWait()
         
-        // Clear all accounts
-        accounts.clear()
+        if (cookiesClearedSuccessfully) {
+            // Only update state after confirmed clear
+            sessions.clear()
+            accounts.clear()
+            GameStore.entries.forEach { store ->
+                authStates[store]?.value = AuthSessionState.LOGGED_OUT
+            }
+        } else {
+            // Cookie clearing failed - mark all as FAILED
+            GameStore.entries.forEach { store ->
+                authStates[store]?.value = AuthSessionState.FAILED
+            }
+        }
     }
     
     override suspend fun removeAccount(accountId: String) {
@@ -237,14 +249,38 @@ class AuthRepositoryImpl(
     }
     
     /**
-     * Clear all WebView cookies.
+     * Clear all WebView cookies and wait for completion.
      * 
-     * Note: CookieManager doesn't easily support per-domain clearing.
-     * We clear all and accept that users must re-auth to other stores.
+     * Note: CookieManager.removeAllCookies() is asynchronous.
+     * We use suspendCancellableCoroutine to wait for the callback.
+     * 
+     * @return true if cookies were cleared successfully, false on timeout
      */
-    private fun clearAllCookies() {
-        CookieManager.getInstance().removeAllCookies(null)
-        CookieManager.getInstance().flush()
+    private suspend fun clearAllCookiesAndWait(): Boolean {
+        return kotlinx.coroutines.suspendCancellableCoroutine { continuation ->
+            val cookieManager = CookieManager.getInstance()
+            
+            // Set a timeout to prevent hanging forever
+            val timeoutHandler = android.os.Handler(android.os.Looper.getMainLooper())
+            val timeoutRunnable = Runnable {
+                if (continuation.isActive) {
+                    continuation.resume(false) {}
+                }
+            }
+            timeoutHandler.postDelayed(timeoutRunnable, 5000) // 5 second timeout
+            
+            cookieManager.removeAllCookies { success ->
+                timeoutHandler.removeCallbacks(timeoutRunnable)
+                cookieManager.flush()
+                if (continuation.isActive) {
+                    continuation.resume(success) {}
+                }
+            }
+            
+            continuation.invokeOnCancellation {
+                timeoutHandler.removeCallbacks(timeoutRunnable)
+            }
+        }
     }
     
     /**
