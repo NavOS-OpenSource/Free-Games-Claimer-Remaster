@@ -407,6 +407,50 @@ data class StoreAuthConfig(
                     "ubi.com"
                 )
             )
+            
+            // Phase 11 additions
+            GameStore.FAB -> StoreAuthConfig(
+                store = store,
+                loginUrl = "https://www.fab.com/login", // Redirects to Epic SSO
+                logoutUrl = null, // Uses Epic session
+                successUrlPatterns = listOf(
+                    "https://www.fab.com/",
+                    "https://fab.com/"
+                ),
+                mfaUrlPatterns = listOf(
+                    "https://www.epicgames.com/id/login/mfa" // Epic SSO MFA
+                ),
+                errorUrlPatterns = listOf(
+                    "https://www.epicgames.com/id/login?error="
+                ),
+                allowedDomains = listOf(
+                    "fab.com",
+                    "epicgames.com" // SSO provider
+                )
+            )
+            
+            GameStore.UNITY_ASSET_STORE -> StoreAuthConfig(
+                store = store,
+                loginUrl = "https://id.unity.com/en/login",
+                logoutUrl = "https://id.unity.com/en/logout",
+                successUrlPatterns = listOf(
+                    "https://assetstore.unity.com/",
+                    "https://id.unity.com/account"
+                ),
+                mfaUrlPatterns = listOf(
+                    "https://id.unity.com/en/verify" // Unity 2FA
+                ),
+                errorUrlPatterns = listOf(
+                    "https://id.unity.com/en/login?error="
+                ),
+                allowedDomains = listOf(
+                    "unity.com",
+                    "assetstore.unity.com",
+                    "id.unity.com",
+                    "login.unity.com",
+                    "pay.unity.com"
+                )
+            )
         }
     }
 }

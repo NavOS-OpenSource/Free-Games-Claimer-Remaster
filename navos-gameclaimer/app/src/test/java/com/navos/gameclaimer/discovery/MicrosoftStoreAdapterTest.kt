@@ -496,8 +496,8 @@ class MicrosoftStoreAdapterTest {
     }
     
     @Test
-    fun `factory has 8 total adapters in Phase 10`() {
+    fun `factory has 10 total adapters in Phase 11`() {
         val factory = DefaultStoreAdapterFactory()
-        assertEquals(8, factory.getAllAdapters().size)
+        assertEquals(10, factory.getAllAdapters().size)
     }
 }

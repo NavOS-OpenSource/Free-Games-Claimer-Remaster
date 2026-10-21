@@ -52,6 +52,17 @@ enum class GameStore(
         displayName = "Ubisoft",
         baseUrl = "https://www.ubisoft.com",
         freeGamesPath = "/en-us/games/free"
+    ),
+    // Phase 11 additions
+    FAB(
+        displayName = "Fab",
+        baseUrl = "https://www.fab.com",
+        freeGamesPath = "/limited-time-free"
+    ),
+    UNITY_ASSET_STORE(
+        displayName = "Unity Asset Store",
+        baseUrl = "https://assetstore.unity.com",
+        freeGamesPath = "/publisher-sale"
     );
 
     val freeGamesUrl: String
