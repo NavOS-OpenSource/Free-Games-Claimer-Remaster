@@ -5,7 +5,7 @@ import com.navos.gameclaimer.domain.adapter.StoreAdapterFactory
 import com.navos.gameclaimer.domain.model.GameStore
 
 /**
- * Phase 7: Concrete implementation of StoreAdapterFactory.
+ * Phase 8: Concrete implementation of StoreAdapterFactory.
  * 
  * Provides access to all registered store adapters.
  * 
@@ -13,6 +13,9 @@ import com.navos.gameclaimer.domain.model.GameStore
  * - Lazy initialization of adapters
  * - Only returns adapters that support discovery
  * - Future: Configuration-based adapter enabling/disabling
+ * 
+ * PHASE 7: Steam, GOG, Itch.io, IndieGala
+ * PHASE 8: Epic Games Store (PC + mobile offers)
  */
 class DefaultStoreAdapterFactory : StoreAdapterFactory {
     
@@ -22,8 +25,10 @@ class DefaultStoreAdapterFactory : StoreAdapterFactory {
             GameStore.STEAM to SteamStoreAdapter(),
             GameStore.GOG to GogStoreAdapter(),
             GameStore.ITCH_IO to ItchioStoreAdapter(),
-            GameStore.INDIEGALA to IndieGalaStoreAdapter()
-            // Epic Games and Prime Gaming adapters will be added in later phases
+            GameStore.INDIEGALA to IndieGalaStoreAdapter(),
+            // Phase 8: Epic Games Store
+            GameStore.EPIC_GAMES to EpicStoreAdapter()
+            // Prime Gaming adapter will be added in a later phase
         )
     }
     

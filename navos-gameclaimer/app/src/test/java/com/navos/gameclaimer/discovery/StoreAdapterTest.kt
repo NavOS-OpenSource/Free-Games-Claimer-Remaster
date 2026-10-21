@@ -208,11 +208,13 @@ class StoreAdapterTest {
         
         val adapters = factory.getAllAdapters()
         
-        assertEquals(4, adapters.size)
+        // Phase 8: Now includes Epic (5 total)
+        assertEquals(5, adapters.size)
         assertTrue(adapters.any { it.store == GameStore.STEAM })
         assertTrue(adapters.any { it.store == GameStore.GOG })
         assertTrue(adapters.any { it.store == GameStore.ITCH_IO })
         assertTrue(adapters.any { it.store == GameStore.INDIEGALA })
+        assertTrue(adapters.any { it.store == GameStore.EPIC_GAMES })
     }
     
     @Test
@@ -227,9 +229,10 @@ class StoreAdapterTest {
         assertNotNull(gog)
         assertEquals(GameStore.GOG, gog?.store)
         
-        // Epic not implemented in Phase 7
+        // Phase 8: Epic now implemented
         val epic = factory.getAdapter(GameStore.EPIC_GAMES)
-        assertNull(epic)
+        assertNotNull(epic)
+        assertEquals(GameStore.EPIC_GAMES, epic?.store)
     }
     
     @Test
@@ -238,8 +241,8 @@ class StoreAdapterTest {
         
         val discoveryAdapters = factory.getDiscoveryAdapters()
         
-        // All Phase 7 adapters support discovery
-        assertEquals(4, discoveryAdapters.size)
+        // Phase 8: All 5 adapters support discovery
+        assertEquals(5, discoveryAdapters.size)
         assertTrue(discoveryAdapters.all { it.supportsDiscovery })
     }
     
@@ -249,7 +252,7 @@ class StoreAdapterTest {
         
         val claimingAdapters = factory.getClaimingAdapters()
         
-        // All claiming disabled in Phase 7
+        // All claiming disabled through Phase 8
         assertEquals(0, claimingAdapters.size)
     }
     
@@ -261,9 +264,9 @@ class StoreAdapterTest {
         assertTrue(factory.isStoreSupported(GameStore.GOG))
         assertTrue(factory.isStoreSupported(GameStore.ITCH_IO))
         assertTrue(factory.isStoreSupported(GameStore.INDIEGALA))
+        assertTrue(factory.isStoreSupported(GameStore.EPIC_GAMES)) // Phase 8
         
         // Not yet implemented
-        assertFalse(factory.isStoreSupported(GameStore.EPIC_GAMES))
         assertFalse(factory.isStoreSupported(GameStore.AMAZON_PRIME))
     }
     
