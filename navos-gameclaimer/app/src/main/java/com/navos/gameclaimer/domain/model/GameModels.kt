@@ -63,12 +63,4 @@ sealed class StoreAuthState {
     data class AuthError(val message: String) : StoreAuthState()
 }
 
-/**
- * Represents a claiming operation result.
- */
-sealed class ClaimResult {
-    data class Success(val game: FreeGame) : ClaimResult()
-    data class AlreadyOwned(val game: FreeGame) : ClaimResult()
-    data class AuthRequired(val store: GameStore) : ClaimResult()
-    data class Failed(val game: FreeGame, val reason: String) : ClaimResult()
-}
+// ClaimResult moved to GiveawayModels.kt in Phase 6

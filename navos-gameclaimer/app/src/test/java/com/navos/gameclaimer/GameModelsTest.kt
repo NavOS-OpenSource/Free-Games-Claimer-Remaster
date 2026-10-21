@@ -89,15 +89,22 @@ class GameModelsTest {
             claimUrl = "https://store.epicgames.com/p/test"
         )
 
-        val success: ClaimResult = ClaimResult.Success(game)
-        val alreadyOwned: ClaimResult = ClaimResult.AlreadyOwned(game)
-        val authRequired: ClaimResult = ClaimResult.AuthRequired(GameStore.EPIC_GAMES)
-        val failed: ClaimResult = ClaimResult.Failed(game, "Network error")
+        val success: ClaimResult = ClaimResult.Success(giveawayId = game.id)
+        val alreadyOwned: ClaimResult = ClaimResult.AlreadyOwned(giveawayId = game.id)
+        val failed: ClaimResult = ClaimResult.Failed(
+            giveawayId = game.id, 
+            reason = "Network error",
+            isRetryable = true
+        )
+        val requiresInteraction: ClaimResult = ClaimResult.RequiresInteraction(
+            giveawayId = game.id,
+            interactionType = "captcha"
+        )
 
         assertTrue(success is ClaimResult.Success)
         assertTrue(alreadyOwned is ClaimResult.AlreadyOwned)
-        assertTrue(authRequired is ClaimResult.AuthRequired)
         assertTrue(failed is ClaimResult.Failed)
+        assertTrue(requiresInteraction is ClaimResult.RequiresInteraction)
         assertEquals("Network error", (failed as ClaimResult.Failed).reason)
     }
     
