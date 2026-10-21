@@ -228,11 +228,11 @@ class EpicStoreAdapterTest {
     }
     
     @Test
-    fun `Factory returns 5 adapters with Epic`() {
+    fun `Factory returns 6 adapters with Epic and Prime`() {
         val factory = DefaultStoreAdapterFactory()
         
         val adapters = factory.getAllAdapters()
-        assertEquals(5, adapters.size)
+        assertEquals(6, adapters.size)
         
         val stores = adapters.map { it.store }.toSet()
         assertTrue(stores.contains(GameStore.STEAM))
