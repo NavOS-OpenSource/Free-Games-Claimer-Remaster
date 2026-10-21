@@ -277,12 +277,33 @@ interface UrlValidator {
  * SECURITY:
  * - Only HTTPS allowed for claim URLs
  * - Blocks dangerous schemes (javascript:, file:, data:, etc.)
- * - Validates URL structure
+ * - Validates URL structure and host
+ * - Rejects deceptive hostnames (IP addresses, localhost, private ranges)
+ * - Rejects user info in URLs (potential credential leak)
+ * 
+ * NOTE: Redirect handling is done at claim time by the WebView/browser.
+ * Discovery URLs only LINK to giveaway pages - they do not trigger claims.
+ * The WebView's navigation handler must re-validate any redirect destinations.
  */
 class DefaultUrlValidator : UrlValidator {
     
     private val blockedSchemes = setOf(
         "javascript", "file", "content", "intent", "data", "blob"
+    )
+    
+    // Known trusted store domains (claim URLs must be on these)
+    private val trustedClaimDomains = setOf(
+        "store.epicgames.com",
+        "epicgames.com",
+        "store.steampowered.com",
+        "steampowered.com",
+        "gog.com",
+        "amazon.com",
+        "gaming.amazon.com",
+        "gamerpower.com",  // Redirect page
+        "indiegala.com",
+        "itch.io",
+        "humblebundle.com"
     )
     
     override fun isValidClaimUrl(url: String): Boolean {
@@ -294,10 +315,25 @@ class DefaultUrlValidator : UrlValidator {
             if (scheme != "https") return false
             
             // Must have a host
-            if (uri.host.isNullOrBlank()) return false
+            val host = uri.host?.lowercase() ?: return false
+            if (host.isBlank()) return false
             
-            // No user info (username:password@host)
+            // No user info (username:password@host) - potential credential leak
             if (uri.userInfo != null) return false
+            
+            // Block IP addresses (IPv4 and IPv6)
+            if (isIpAddress(host)) return false
+            
+            // Block localhost and private network
+            if (isLocalOrPrivate(host)) return false
+            
+            // Block non-standard ports (phishing indicator)
+            val port = uri.port
+            if (port != -1 && port != 443) return false
+            
+            // For claim URLs, verify against trusted domains
+            // This prevents phishing via look-alike domains
+            if (!isTrustedDomain(host)) return false
             
             true
         } catch (e: Exception) {
@@ -317,11 +353,59 @@ class DefaultUrlValidator : UrlValidator {
             if (scheme in blockedSchemes) return false
             
             // Must have a host
-            if (uri.host.isNullOrBlank()) return false
+            val host = uri.host?.lowercase() ?: return false
+            if (host.isBlank()) return false
+            
+            // Block IP addresses for images too
+            if (isIpAddress(host)) return false
+            
+            // Block localhost and private network
+            if (isLocalOrPrivate(host)) return false
             
             true
         } catch (e: Exception) {
             false
+        }
+    }
+    
+    /**
+     * Check if host is an IP address.
+     */
+    private fun isIpAddress(host: String): Boolean {
+        // IPv4 pattern
+        val ipv4Regex = Regex("""^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$""")
+        if (ipv4Regex.matches(host)) return true
+        
+        // IPv6 pattern (simplified check for bracket notation)
+        if (host.startsWith("[") || host.contains("::") || 
+            host.count { it == ':' } > 1) return true
+        
+        return false
+    }
+    
+    /**
+     * Check if host is localhost or private network.
+     */
+    private fun isLocalOrPrivate(host: String): Boolean {
+        val lower = host.lowercase()
+        return lower == "localhost" ||
+               lower.endsWith(".local") ||
+               lower.endsWith(".localhost") ||
+               lower.startsWith("10.") ||
+               lower.startsWith("192.168.") ||
+               lower.startsWith("172.") ||  // Simplified private range check
+               lower == "127.0.0.1" ||
+               lower == "0.0.0.0" ||
+               lower == "::1"
+    }
+    
+    /**
+     * Check if host is a trusted store domain.
+     */
+    private fun isTrustedDomain(host: String): Boolean {
+        val lower = host.lowercase()
+        return trustedClaimDomains.any { domain ->
+            lower == domain || lower.endsWith(".$domain")
         }
     }
 }

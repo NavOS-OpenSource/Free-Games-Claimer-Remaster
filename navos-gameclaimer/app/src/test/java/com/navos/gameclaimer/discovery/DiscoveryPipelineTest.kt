@@ -236,6 +236,24 @@ class DiscoveryPipelineTest {
         assertFalse(validator.isValidImageUrl("javascript:void(0)"))
     }
     
+    @Test
+    fun `URL validator rejects dangerous schemes`() {
+        val validator = FakeUrlValidator()
+        // Fake validator rejects non-http(s) URLs
+        assertFalse(validator.isValidClaimUrl("javascript:alert(1)"))
+        assertFalse(validator.isValidClaimUrl("file:///etc/passwd"))
+        assertFalse(validator.isValidClaimUrl("data:text/html,test"))
+        assertFalse(validator.isValidImageUrl("javascript:void(0)"))
+    }
+    
+    @Test
+    fun `URL validator rejects blank URLs`() {
+        val validator = FakeUrlValidator()
+        assertFalse(validator.isValidClaimUrl(""))
+        assertFalse(validator.isValidClaimUrl("   "))
+        assertFalse(validator.isValidImageUrl(""))
+    }
+    
     private fun createTestGiveaway(
         id: String = "test:epic_games:1",
         title: String = "Test Game",
