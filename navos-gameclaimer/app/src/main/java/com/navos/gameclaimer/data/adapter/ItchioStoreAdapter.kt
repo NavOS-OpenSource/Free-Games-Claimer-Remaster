@@ -122,23 +122,72 @@ class ItchioStoreAdapter(
     }
     
     /**
-     * Parse Itch.io game info from URL.
+     * Parse Itch.io game info from URL with security validation.
+     * 
+     * Security: Rejects deceptive hosts and unsafe schemes.
      * 
      * @return Pair of (developer, game-slug) or null
      */
     fun parseGameUrl(url: String): Pair<String, String>? {
+        // Security: Validate URL structure and scheme
+        if (!isSecureUrl(url)) return null
+        
+        // Security: Validate host is actually Itch.io
+        val host = try {
+            java.net.URI(url).host?.lowercase()
+        } catch (e: Exception) {
+            null
+        } ?: return null
+        
+        if (!isValidItchioHost(host)) return null
+        
         val match = ITCHIO_GAME_REGEX.find(url) ?: return null
         return match.groupValues[1] to match.groupValues[2]
     }
     
     /**
-     * Check if a URL is a valid Itch.io subdomain.
+     * Validates URL is HTTPS and well-formed.
+     */
+    private fun isSecureUrl(url: String): Boolean {
+        return try {
+            val uri = java.net.URI(url)
+            uri.scheme?.lowercase() == "https"
+        } catch (e: Exception) {
+            false
+        }
+    }
+    
+    /**
+     * Check if a hostname is a valid Itch.io domain.
      * 
      * Itch.io uses developer.itch.io subdomains, so we need to verify
      * the host ends with .itch.io (with leading dot for safety).
+     * 
+     * Security protections:
+     * - Rejects "fakeitch.io" (suffix attack)
+     * - Rejects "itch.io.attacker.com" (prefix attack)
+     * - Rejects deeply nested subdomains (attack mitigation)
      */
     fun isValidItchioHost(host: String): Boolean {
         val lower = host.lowercase()
-        return lower == "itch.io" || lower.endsWith(".itch.io")
+        
+        // Exact match for main domain
+        if (lower == "itch.io") return true
+        
+        // Check for valid subdomain format: SINGLE_SEGMENT.itch.io
+        // This prevents attacks like evil.developer.itch.io
+        if (lower.endsWith(".itch.io")) {
+            val subdomain = lower.removeSuffix(".itch.io")
+            
+            // Subdomain must be non-empty and single segment (no dots)
+            if (subdomain.isEmpty()) return false
+            if (subdomain.contains('.')) return false
+            if (subdomain.startsWith('-') || subdomain.endsWith('-')) return false
+            
+            // Valid characters: alphanumeric, hyphen, underscore
+            return subdomain.all { it.isLetterOrDigit() || it == '-' || it == '_' }
+        }
+        
+        return false
     }
 }

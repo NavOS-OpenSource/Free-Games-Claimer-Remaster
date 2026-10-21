@@ -120,24 +120,68 @@ class GogStoreAdapter(
     }
     
     /**
-     * Parse GOG game slug from URL.
+     * Parse GOG game slug from URL with security validation.
+     * 
+     * Security: Rejects deceptive hosts and unsafe schemes.
      */
     fun parseGameSlug(url: String): String? {
+        // Security: Validate URL structure and scheme
+        if (!isSecureUrl(url)) return null
+        
+        // Security: Validate host is actually GOG
+        if (!isValidGogHost(url)) return null
+        
         val match = GOG_GAME_REGEX.find(url) ?: return null
         return match.groupValues[1]
+    }
+    
+    /**
+     * Validates URL is HTTPS and well-formed.
+     */
+    private fun isSecureUrl(url: String): Boolean {
+        return try {
+            val uri = java.net.URI(url)
+            uri.scheme?.lowercase() == "https"
+        } catch (e: Exception) {
+            false
+        }
+    }
+    
+    /**
+     * Validates host is actually a GOG domain, not a lookalike.
+     * 
+     * Protects against:
+     * - Suffix attacks: fakegog.com
+     * - Prefix attacks: gog.com.attacker.com
+     */
+    private fun isValidGogHost(url: String): Boolean {
+        return try {
+            val uri = java.net.URI(url)
+            val host = uri.host?.lowercase() ?: return false
+            
+            // Must be exactly gog.com or subdomain thereof
+            host == "gog.com" || host.endsWith(".gog.com")
+        } catch (e: Exception) {
+            false
+        }
     }
     
     /**
      * JavaScript to handle CookieBot consent popup.
      * 
      * GOG uses CookieBot which blocks the page until accepted.
+     * 
+     * NOTE: This script only DETECTS the dialog and logs its presence.
+     * Actual consent acceptance should be user-controlled via WebView interaction.
+     * This JS is provided for reference; Phase 7 does NOT auto-execute it.
      */
     val COOKIE_CONSENT_JS = """
         (() => {
-            const accept = document.querySelector('#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll');
-            if (accept) { accept.click(); return 'clicked'; }
+            // DETECTION ONLY - actual click would require user confirmation
             const cookiebot = document.querySelector('#CybotCookiebotDialog');
-            if (cookiebot) { cookiebot.remove(); return 'removed'; }
+            if (cookiebot) {
+                return 'consent_dialog_present';
+            }
             return 'not_found';
         })()
     """.trimIndent()

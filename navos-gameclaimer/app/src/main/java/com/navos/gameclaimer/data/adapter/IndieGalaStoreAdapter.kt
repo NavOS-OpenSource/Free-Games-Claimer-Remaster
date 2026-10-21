@@ -124,9 +124,17 @@ class IndieGalaStoreAdapter(
     }
     
     /**
-     * Parse IndieGala giveaway slug from URL.
+     * Parse IndieGala giveaway slug from URL with security validation.
+     * 
+     * Security: Rejects deceptive hosts and unsafe schemes.
      */
     fun parseGiveawaySlug(url: String): String? {
+        // Security: Validate URL structure and scheme
+        if (!isSecureUrl(url)) return null
+        
+        // Security: Validate host is actually IndieGala
+        if (!isValidIndieGalaHost(url)) return null
+        
         INDIEGALA_GIVEAWAY_REGEX.find(url)?.let {
             return it.groupValues[1]
         }
@@ -134,5 +142,36 @@ class IndieGalaStoreAdapter(
             return it.groupValues[1]
         }
         return null
+    }
+    
+    /**
+     * Validates URL is HTTPS and well-formed.
+     */
+    private fun isSecureUrl(url: String): Boolean {
+        return try {
+            val uri = java.net.URI(url)
+            uri.scheme?.lowercase() == "https"
+        } catch (e: Exception) {
+            false
+        }
+    }
+    
+    /**
+     * Validates host is actually an IndieGala domain, not a lookalike.
+     * 
+     * Protects against:
+     * - Suffix attacks: fakeindiegala.com
+     * - Prefix attacks: indiegala.com.attacker.com
+     */
+    private fun isValidIndieGalaHost(url: String): Boolean {
+        return try {
+            val uri = java.net.URI(url)
+            val host = uri.host?.lowercase() ?: return false
+            
+            // Must be exactly indiegala.com or subdomain thereof (e.g., www.indiegala.com)
+            host == "indiegala.com" || host.endsWith(".indiegala.com")
+        } catch (e: Exception) {
+            false
+        }
     }
 }

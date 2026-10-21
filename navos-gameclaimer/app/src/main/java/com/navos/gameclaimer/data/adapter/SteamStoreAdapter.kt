@@ -122,10 +122,70 @@ class SteamStoreAdapter(
     }
     
     /**
-     * Parse Steam app/package ID from URL.
+     * Parse Steam app/package ID from URL with security validation.
+     * 
+     * Security: Rejects deceptive hosts, unsafe schemes, and attack patterns.
      */
     fun parseItemId(url: String): Pair<String, String>? {
+        // Security: Validate URL structure and scheme
+        if (!isSecureUrl(url)) return null
+        
+        // Security: Validate host is actually Steam
+        if (!isValidSteamHost(url)) return null
+        
+        // Security: Check for path traversal attacks
+        if (hasPathTraversal(url)) return null
+        
         val match = STEAM_ITEM_REGEX.find(url) ?: return null
         return match.groupValues[1] to match.groupValues[2] // (type, id)
+    }
+    
+    /**
+     * Validates URL is HTTPS and well-formed.
+     */
+    private fun isSecureUrl(url: String): Boolean {
+        return try {
+            val uri = java.net.URI(url)
+            uri.scheme?.lowercase() == "https" && uri.port == -1 // No explicit port
+        } catch (e: Exception) {
+            false
+        }
+    }
+    
+    /**
+     * Validates host is actually a Steam domain, not a lookalike.
+     * 
+     * Protects against:
+     * - Suffix attacks: fakesteampowered.com
+     * - Prefix attacks: store.steampowered.com.attacker.com
+     * - IP addresses
+     */
+    private fun isValidSteamHost(url: String): Boolean {
+        return try {
+            val uri = java.net.URI(url)
+            val host = uri.host?.lowercase() ?: return false
+            
+            // Reject IP addresses
+            if (host.matches(Regex("""^\d+\.\d+\.\d+\.\d+$"""))) return false
+            if (host.startsWith("[")) return false // IPv6
+            
+            // Must be exactly steampowered.com or subdomain thereof
+            // OR exactly steamcommunity.com or subdomain thereof
+            host == "steampowered.com" || host.endsWith(".steampowered.com") ||
+            host == "steamcommunity.com" || host.endsWith(".steamcommunity.com")
+        } catch (e: Exception) {
+            false
+        }
+    }
+    
+    /**
+     * Detects path traversal attack patterns.
+     */
+    private fun hasPathTraversal(url: String): Boolean {
+        val normalized = url.lowercase()
+        return normalized.contains("..") ||
+               normalized.contains("%2e%2e") ||
+               normalized.contains("%252e") ||
+               normalized.contains("%00")
     }
 }
