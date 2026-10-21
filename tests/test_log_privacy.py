@@ -146,6 +146,13 @@ class TestNoTokenReachesTheLog:
         if not main.cfg.debug_libs:
             assert logging.getLogger("urllib3").level == logging.WARNING
 
+    def test_the_markdown_library_is_quieted_under_its_real_name(self):
+        # Logger names are case-sensitive, and "markdown" on the list never matched python-markdown's "MARKDOWN".
+        import markdown.core
+
+        import main
+        assert markdown.core.logger.name in main.NOISY_LIBRARIES
+
 
 class TestTheMask:
     """Secrets from .env and game codes are masked in every log line, whichever library writes it (#86)."""

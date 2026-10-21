@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This project does not follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html): every release raises the number after the dot (1.10, 1.11), and a development build carries the same number with a `d` suffix (`v1.11d`). The version being worked on stays at the top without a date until it is released.
 
+## [1.18] - 2026-10-21
+
+### Changed
+- **Debian 13 in the image** – the `Dockerfile` builds on `debian:trixie-slim` instead of Debian 12, which brings Python 3.13, noVNC 1.6 and longer security support. Chrome on x86-64 and Chromium on the Raspberry Pi stay as they were; `docker compose pull` is all you do. If Chromium no longer starts on your Raspberry Pi, please open an issue.
+- **Apprise 2** – `requirements.txt` moves notifications to `apprise>=2.0.1,<3`. `markdown_ready()` in `src/core/notifier.py` keeps Telegram on HTML, so game names stay bold links there, and Pushover and Matrix now show bold text and links too. Slack should as well: if yours still shows asterisks, please open an issue. Nothing in your settings changes.
+- **Dependency updates** – `sqlalchemy` to `>=2.1.6` (Dependabot [#92](https://github.com/P-Adamiec/Free-Games-Claimer-Remaster/pull/92)).
+
+### Fixed
+- **AliExpress collects in every language of its coin page ([#93](https://github.com/P-Adamiec/Free-Games-Claimer-Remaster/issues/93))** – `_read_checkin_state()` in `src/stores/aliexpress.py` knows the check-in labels in all 18 languages, taken from AliExpress's own translations, finds the check-in button by the name the page's code gives it when its label is new, and reads a collected day from the calendar's own mark. Before, a German account was left uncollected.
+
 ## [1.17] - 2026-10-21
 
 ### Changed
@@ -453,6 +463,7 @@ Steam no longer reads SteamDB: free Steam games now come from GamerPower and Ste
 - ❌ `unrealengine.js` – Out of scope
 - ❌ `steam-games.js` – Only scraped profiles, never claimed games
 
+[1.18]: https://github.com/P-Adamiec/Free-Games-Claimer-Remaster/compare/v1.17...v1.18
 [1.17]: https://github.com/P-Adamiec/Free-Games-Claimer-Remaster/compare/v1.16...v1.17
 [1.16]: https://github.com/P-Adamiec/Free-Games-Claimer-Remaster/compare/v1.15...v1.16
 [1.15]: https://github.com/P-Adamiec/Free-Games-Claimer-Remaster/compare/v1.14...v1.15

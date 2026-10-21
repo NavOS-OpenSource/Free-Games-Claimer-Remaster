@@ -37,11 +37,19 @@ class TestNtfyIsToldToRenderMarkdown:
         assert markdown_ready("ntfy://ntfy.sh/topic?format=text") == ["ntfy://ntfy.sh/topic?format=text"]
 
     def test_other_services_are_not_touched(self):
-        assert markdown_ready("tgram://123:abc/456") == ["tgram://123:abc/456"]
+        assert markdown_ready("json://localhost/path") == ["json://localhost/path"]
+
+    @pytest.mark.parametrize("url,expected", [
+        ("tgram://123:abc/456", "tgram://123:abc/456?format=html"),
+        ("tgram://123:abc/456?silent=yes", "tgram://123:abc/456?silent=yes&format=html"),
+        ("tgram://123:abc/456?format=markdown", "tgram://123:abc/456?format=markdown"),
+    ])
+    def test_telegram_is_told_to_take_html(self, url, expected):
+        assert markdown_ready(url) == [expected]
 
     def test_several_services_are_handled_one_by_one(self):
         assert markdown_ready("ntfy://ntfy.sh/a, tgram://1:a/2") == [
-            "ntfy://ntfy.sh/a?format=markdown", "tgram://1:a/2"]
+            "ntfy://ntfy.sh/a?format=markdown", "tgram://1:a/2?format=html"]
 
     def test_nothing_configured_is_not_a_crash(self):
         assert markdown_ready("") == [] and markdown_ready(None) == []
@@ -51,7 +59,7 @@ class TestNtfyIsToldToRenderMarkdown:
         ap = apprise.Apprise()
         for url in markdown_ready("ntfy://ntfy.sh/topic"):
             ap.add(url)
-        assert [s.notify_format for s in ap.servers] == [apprise.NotifyFormat.MARKDOWN]
+        assert [s.notify_format for s in ap] == [apprise.NotifyFormat.MARKDOWN]
 
 
 class TestTheMessageSaysItIsMarkdown:
@@ -68,6 +76,38 @@ class TestTheMessageSaysItIsMarkdown:
         assert "<strong>Epic Games</strong>" in out
         assert '<a href="https://store.epicgames.com/en-US/p/astral-ascent">' in out
         assert "**" not in out
+
+    def test_telegram_gets_bold_links_not_raw_markdown(self, monkeypatch):
+        # Apprise 2 sends Telegram its own Markdown by default, which shows "[Astral Ascent](https://…)" as text.
+        import json
+
+        import requests
+        sent = []
+
+        class Reply:
+            status_code = 200
+            content = b'{"ok": true, "result": {"id": 1, "username": "bot", "first_name": "bot"}}'
+            text = content.decode()
+            headers = {}
+
+            def json(self):
+                return json.loads(self.content)
+
+        def post(url, *args, **kwargs):
+            body = kwargs.get("data") or kwargs.get("json")
+            sent.append(json.loads(body) if isinstance(body, (str, bytes)) else body)
+            return Reply()
+
+        monkeypatch.setattr(requests, "post", post)
+        monkeypatch.setattr(requests.Session, "post", lambda self, url, *a, **k: post(url, *a, **k))
+        ap = apprise.Apprise()
+        for url in markdown_ready("tgram://123456789:abcdefghijklmnopqrstuvwxyz0123456/12345"):
+            ap.add(url)
+        assert ap.notify(body=SUMMARY, title="T", body_format=apprise.NotifyFormat.MARKDOWN)
+        message = next(s for s in sent if s and "text" in s)
+        assert message["parse_mode"] == "HTML"
+        assert '<a href="https://store.epicgames.com/en-US/p/astral-ascent">' in message["text"]
+        assert "**" not in message["text"] and "](" not in message["text"]
 
     def test_a_service_that_wants_text_loses_nothing(self):
         # ntfy and Discord read plain text; they must get exactly what they got before.

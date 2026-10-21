@@ -7,9 +7,9 @@
 # so you can watch the browser remotely.
 # ──────────────────────────────────────────────────────────────
 
-# Start from Debian Bookworm (a lightweight Linux distribution).
+# Start from Debian Trixie, Debian 13 (a lightweight Linux distribution).
 # Using Debian instead of Alpine because Chrome needs glibc.
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 # Use bash as the shell (instead of sh) for better scripting support
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -43,13 +43,8 @@ RUN printf 'Acquire::ForceIPv4 "true";\nAcquire::Retries "5";\nAcquire::http::Ti
         virtualgl turbovnc ratpoison \
         # noVNC + websockify = VNC viewer accessible through a web browser
         novnc websockify \
-    # ── Shared libraries required by Chrome/Chromium ──
-    && apt-get install -y --no-install-recommends \
-        libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 \
-        libcups2 libxkbcommon0 libatspi2.0-0 libxcomposite1 \
-        libgbm1 libpango-1.0-0 libcairo2 libasound2 \
-        libxfixes3 libxdamage1 \
     # ── Install browser: Google Chrome on x86/x64, Chromium on ARM (Raspberry Pi) ──
+    # Each browser package pulls the shared libraries it needs, under whatever name the release gives them.
     && ARCH=$(dpkg --print-architecture) \
     && if [ "$ARCH" = "amd64" ]; then \
            curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /etc/apt/keyrings/google-chrome.gpg \
@@ -89,7 +84,8 @@ WORKDIR /fgc
 
 # ── Install Python libraries (like nodriver, sqlalchemy, etc.) ──
 COPY requirements.txt ./
-RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
+# Debian installs a few Python modules of its own (for websockify) that pip cannot replace, so pip's copies go beside them.
+RUN pip install --no-cache-dir --break-system-packages --ignore-installed -r requirements.txt
 
 # ── Copy the application source code into the container ──
 COPY . .

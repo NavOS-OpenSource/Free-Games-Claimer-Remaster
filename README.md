@@ -371,7 +371,7 @@ To skip a store, simply exclude it from the `STORES` list. Any unrecognized sett
 free-games-claimer-remaster/
 ├── main.py                 # Entry point + scheduler + CLI + run summary
 ├── docker-compose.yml      # Container configuration
-├── Dockerfile              # Debian bookworm-slim + Chrome/Chromium + TurboVNC + noVNC
+├── Dockerfile              # Debian trixie-slim + Chrome/Chromium + TurboVNC + noVNC
 ├── docker-entrypoint.sh    # Starts the virtual display, VNC and the bot
 ├── start-vnc.sh            # Starts the virtual screen and noVNC, again if the screen dies
 ├── requirements.txt        # Python dependencies

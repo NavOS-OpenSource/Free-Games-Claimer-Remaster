@@ -128,6 +128,21 @@ class TestCountrySites:
     def test_the_italian_check_in_button_is_recognised(self):
         assert self.SOURCE.count("odbierz|raccogli|") == 2
 
+    def test_every_coin_page_language_is_recognised(self):
+        # #93: the lists come from AliExpress's own language packs; these entries were also seen on real accounts.
+        from src.stores.aliexpress import CHECKIN_LABELS, EARN_MORE_LABELS, TODAY_LABELS
+        assert {"odbierz", "raccogli", "sammeln", "einsammeln", "collect"} <= set(CHECKIN_LABELS)
+        assert {"zdobądź więcej", "mehr münzen verdienen", "earn more coins"} <= set(EARN_MORE_LABELS)
+        assert {"dziś", "heute", "today"} <= set(TODAY_LABELS)
+        # The page script compares lower-case text, so an upper-case entry would never match.
+        assert all(label == label.lower() for label in CHECKIN_LABELS + EARN_MORE_LABELS + TODAY_LABELS)
+        assert self.SOURCE.count('.replace("__COLLECT__"') == 2 and self.SOURCE.count('.replace("__EARN__"') == 2
+
+    def test_a_collected_day_is_read_from_the_calendar_in_any_language(self):
+        # Seen live 21.10: after collecting, the button shows the streak, so only the calendar's own mark tells.
+        assert "aecoin-today-checked-" in self.SOURCE and "|| todayChecked" in self.SOURCE
+        assert "&& !todayChecked" in self.SOURCE
+
 
 class TestSignedInFromTheApi:
     """A signed-in coin page is told by the account's own API answer, in any language (TODO 37, #73)."""
