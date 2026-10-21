@@ -107,9 +107,7 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.1.1")
 
     // Security - EncryptedSharedPreferences for sensitive data
-    implementation("androidx.security:security-crypto:1.1.0-alpha06")
-
-    // WorkManager (background scheduling)
+        // WorkManager (background scheduling)
     implementation("androidx.work:work-runtime-ktx:2.9.0")
 
     // Coroutines
