@@ -194,6 +194,11 @@ class GamerPowerApiClient {
      * - Validates all URLs
      * - Sanitizes text fields
      * - Maps to appropriate store
+     * 
+     * Store resolution priority:
+     * 1. External store from URL host (Fanatical, Alienware Arena)
+     * 2. Platform field mapping (Steam, Epic, GOG, etc.)
+     * 3. Instructions text hints (fallback)
      */
     private fun convertToGiveaway(api: GamerPowerGiveaway): Giveaway? {
         // Validate required fields
@@ -205,8 +210,11 @@ class GamerPowerApiClient {
         val claimUrl = api.openGiveawayUrl
         if (!claimUrl.startsWith("https://")) return null
         
-        // Map platform to store
-        val store = mapPlatformToStore(api.platforms) ?: return null
+        // Map platform to store with priority: URL host > platform > instructions
+        val store = mapUrlToExternalStore(claimUrl)
+            ?: mapPlatformToStore(api.platforms)
+            ?: mapInstructionsToStore(api.instructions)
+            ?: return null
         
         // Map type
         val type = mapGiveawayType(api.type)
@@ -232,8 +240,14 @@ class GamerPowerApiClient {
     
     /**
      * Map GamerPower platform string to our GameStore enum.
+     * 
+     * GamerPower platforms include: PC, Steam, Epic Games Store, GOG, Playstation,
+     * Xbox, Nintendo Switch, Android, iOS, DRM-Free, Itch.io, IndieGala.
+     * 
+     * External redemption sites (Fanatical, Alienware Arena) are identified
+     * via open_giveaway_url host or instructions text, not platform field.
      */
-    private fun mapPlatformToStore(platforms: String?): GameStore? {
+    fun mapPlatformToStore(platforms: String?): GameStore? {
         if (platforms.isNullOrBlank()) return null
         
         val lower = platforms.lowercase()
@@ -242,7 +256,54 @@ class GamerPowerApiClient {
             "steam" in lower -> GameStore.STEAM
             "gog" in lower -> GameStore.GOG
             "amazon" in lower || "prime" in lower -> GameStore.AMAZON_PRIME
+            "itch.io" in lower || "itchio" in lower -> GameStore.ITCH_IO
+            "indiegala" in lower -> GameStore.INDIEGALA
             else -> null // Unsupported platform
+        }
+    }
+    
+    /**
+     * Identify external redemption site from giveaway URL.
+     * 
+     * GamerPower hosts giveaways for external sites like Fanatical and
+     * Alienware Arena. These are identified by the open_giveaway_url host,
+     * not the platform field.
+     * 
+     * SECURITY: Validates URL structure before host extraction.
+     */
+    fun mapUrlToExternalStore(url: String?): GameStore? {
+        if (url.isNullOrBlank()) return null
+        if (!url.startsWith("https://")) return null
+        
+        return try {
+            val uri = java.net.URI(url)
+            val host = uri.host?.lowercase() ?: return null
+            
+            when {
+                host == "fanatical.com" || host.endsWith(".fanatical.com") -> GameStore.FANATICAL
+                host == "alienwarearena.com" || host.endsWith(".alienwarearena.com") -> GameStore.ALIENWARE_ARENA
+                host == "indiegala.com" || host.endsWith(".indiegala.com") -> GameStore.INDIEGALA
+                else -> null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+    
+    /**
+     * Identify store from instructions text when URL/platform are ambiguous.
+     * 
+     * GamerPower instructions often mention where to redeem keys.
+     */
+    fun mapInstructionsToStore(instructions: String?): GameStore? {
+        if (instructions.isNullOrBlank()) return null
+        
+        val lower = instructions.lowercase()
+        return when {
+            "fanatical" in lower -> GameStore.FANATICAL
+            "alienware" in lower -> GameStore.ALIENWARE_ARENA
+            "indiegala" in lower -> GameStore.INDIEGALA
+            else -> null
         }
     }
     

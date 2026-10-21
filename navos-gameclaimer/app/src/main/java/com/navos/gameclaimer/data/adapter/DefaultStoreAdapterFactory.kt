@@ -5,7 +5,7 @@ import com.navos.gameclaimer.domain.adapter.StoreAdapterFactory
 import com.navos.gameclaimer.domain.model.GameStore
 
 /**
- * Phase 11: Concrete implementation of StoreAdapterFactory.
+ * Phase 12: Concrete implementation of StoreAdapterFactory.
  * 
  * Provides access to all registered store adapters.
  * 
@@ -19,6 +19,7 @@ import com.navos.gameclaimer.domain.model.GameStore
  * PHASE 9: Prime Gaming (discovery only, external code support)
  * PHASE 10: Microsoft Store, Ubisoft (discovery only)
  * PHASE 11: Fab, Unity Asset Store (discovery only)
+ * PHASE 12: Fanatical, Alienware Arena (discovery only via GamerPower)
  */
 class DefaultStoreAdapterFactory : StoreAdapterFactory {
     
@@ -38,7 +39,10 @@ class DefaultStoreAdapterFactory : StoreAdapterFactory {
             GameStore.UBISOFT to UbisoftAdapter(),
             // Phase 11: Fab and Unity Asset Store
             GameStore.FAB to FabAdapter(),
-            GameStore.UNITY_ASSET_STORE to UnityAssetStoreAdapter()
+            GameStore.UNITY_ASSET_STORE to UnityAssetStoreAdapter(),
+            // Phase 12: Fanatical and Alienware Arena (via GamerPower)
+            GameStore.FANATICAL to FanaticalAdapter(),
+            GameStore.ALIENWARE_ARENA to AlienwareArenaAdapter()
         )
     }
     

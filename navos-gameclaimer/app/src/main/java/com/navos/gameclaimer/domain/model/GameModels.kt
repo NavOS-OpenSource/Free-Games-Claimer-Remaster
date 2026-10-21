@@ -63,6 +63,17 @@ enum class GameStore(
         displayName = "Unity Asset Store",
         baseUrl = "https://assetstore.unity.com",
         freeGamesPath = "/publisher-sale"
+    ),
+    // Phase 12 additions
+    FANATICAL(
+        displayName = "Fanatical",
+        baseUrl = "https://www.fanatical.com",
+        freeGamesPath = "/en/pick-and-mix"  // Giveaways via GamerPower, no dedicated page
+    ),
+    ALIENWARE_ARENA(
+        displayName = "Alienware Arena",
+        baseUrl = "https://www.alienwarearena.com",
+        freeGamesPath = "/ucf/show/giveaways"  // Giveaway listings
     );
 
     val freeGamesUrl: String

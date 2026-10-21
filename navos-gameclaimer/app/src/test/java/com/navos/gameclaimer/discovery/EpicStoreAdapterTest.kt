@@ -228,11 +228,11 @@ class EpicStoreAdapterTest {
     }
     
     @Test
-    fun `Factory returns 10 adapters with Epic, Prime, Microsoft, Ubisoft, Fab and Unity`() {
+    fun `Factory returns 12 adapters including Phase 12 stores`() {
         val factory = DefaultStoreAdapterFactory()
         
         val adapters = factory.getAllAdapters()
-        assertEquals(10, adapters.size)
+        assertEquals(12, adapters.size)
         
         val stores = adapters.map { it.store }.toSet()
         assertTrue(stores.contains(GameStore.STEAM))
@@ -242,6 +242,8 @@ class EpicStoreAdapterTest {
         assertTrue(stores.contains(GameStore.EPIC_GAMES))
         assertTrue(stores.contains(GameStore.FAB))
         assertTrue(stores.contains(GameStore.UNITY_ASSET_STORE))
+        assertTrue(stores.contains(GameStore.FANATICAL))
+        assertTrue(stores.contains(GameStore.ALIENWARE_ARENA))
     }
     
     @Test

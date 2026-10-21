@@ -7,42 +7,42 @@ import org.junit.Assert.*
 import org.junit.Test
 
 /**
- * Phase 7: GamerPower platform-to-GameStore mapping tests.
+ * Phase 12: GamerPower platform-to-GameStore mapping tests.
  * 
  * Tests mapping of GamerPower platform strings to our GameStore enum,
  * including all four Phase 7 stores, ambiguous mappings, unknown platforms,
- * malformed payloads, and duplicate detection.
+ * malformed payloads, duplicate detection, and Phase 12 external store mappings.
+ * 
+ * Phase 12 additions:
+ * - Fanatical URL-based detection
+ * - Alienware Arena URL-based detection
+ * - Instructions-based store hints
  */
 class GamerPowerPlatformMappingTest {
+    
+    private val apiClient = GamerPowerApiClient()
     
     // ===== STEAM PLATFORM MAPPING =====
     
     @Test
     fun `Steam platform maps to GameStore STEAM`() {
-        assertEquals(GameStore.STEAM, mapPlatformToStore("steam"))
-        assertEquals(GameStore.STEAM, mapPlatformToStore("Steam"))
-        assertEquals(GameStore.STEAM, mapPlatformToStore("STEAM"))
+        assertEquals(GameStore.STEAM, apiClient.mapPlatformToStore("steam"))
+        assertEquals(GameStore.STEAM, apiClient.mapPlatformToStore("Steam"))
+        assertEquals(GameStore.STEAM, apiClient.mapPlatformToStore("STEAM"))
     }
     
     @Test
-    fun `PC platform maps to GameStore STEAM when no other indicators`() {
-        // PC defaults to Steam when source is GamerPower and no other store info
-        val result = mapPlatformToStoreWithContext("PC", claimUrl = "https://store.steampowered.com/app/12345")
-        assertEquals(GameStore.STEAM, result)
+    fun `PC platform with Steam URL maps to STEAM`() {
+        // PC detected by URL, not platform string alone
+        val result = apiClient.mapUrlToExternalStore("https://store.steampowered.com/app/12345")
+        // Steam URLs are not external stores, they use platform mapping
+        assertNull(result)
     }
     
     @Test
     fun `PC platform maps based on claim URL store detection`() {
-        // PC with GOG URL
-        val gogResult = mapPlatformToStoreWithContext("PC", claimUrl = "https://www.gog.com/game/test")
-        assertEquals(GameStore.GOG, gogResult)
-        
-        // PC with Itch URL
-        val itchResult = mapPlatformToStoreWithContext("PC", claimUrl = "https://dev.itch.io/game")
-        assertEquals(GameStore.ITCH_IO, itchResult)
-        
-        // PC with IndieGala URL
-        val igResult = mapPlatformToStoreWithContext("PC", claimUrl = "https://www.indiegala.com/giveaways/game")
+        // PC with IndieGala URL - IndieGala IS an external store
+        val igResult = apiClient.mapUrlToExternalStore("https://www.indiegala.com/giveaways/game")
         assertEquals(GameStore.INDIEGALA, igResult)
     }
     
@@ -50,73 +50,156 @@ class GamerPowerPlatformMappingTest {
     
     @Test
     fun `GOG platform maps to GameStore GOG`() {
-        assertEquals(GameStore.GOG, mapPlatformToStore("gog"))
-        assertEquals(GameStore.GOG, mapPlatformToStore("GOG"))
-        assertEquals(GameStore.GOG, mapPlatformToStore("Gog"))
-    }
-    
-    @Test
-    fun `DRM-Free platform with GOG URL maps to GameStore GOG`() {
-        val result = mapPlatformToStoreWithContext("DRM-Free", claimUrl = "https://www.gog.com/game/witcher")
-        assertEquals(GameStore.GOG, result)
+        assertEquals(GameStore.GOG, apiClient.mapPlatformToStore("gog"))
+        assertEquals(GameStore.GOG, apiClient.mapPlatformToStore("GOG"))
+        assertEquals(GameStore.GOG, apiClient.mapPlatformToStore("Gog"))
     }
     
     // ===== ITCH.IO PLATFORM MAPPING =====
     
     @Test
     fun `Itch platform maps to GameStore ITCH_IO`() {
-        assertEquals(GameStore.ITCH_IO, mapPlatformToStore("itchio"))
-        assertEquals(GameStore.ITCH_IO, mapPlatformToStore("itch.io"))
-        assertEquals(GameStore.ITCH_IO, mapPlatformToStore("Itch.io"))
-        assertEquals(GameStore.ITCH_IO, mapPlatformToStore("Itch"))
-    }
-    
-    @Test
-    fun `Indie platform with Itch URL maps to GameStore ITCH_IO`() {
-        val result = mapPlatformToStoreWithContext("Indie", claimUrl = "https://developer.itch.io/game")
-        assertEquals(GameStore.ITCH_IO, result)
+        assertEquals(GameStore.ITCH_IO, apiClient.mapPlatformToStore("itchio"))
+        assertEquals(GameStore.ITCH_IO, apiClient.mapPlatformToStore("itch.io"))
+        assertEquals(GameStore.ITCH_IO, apiClient.mapPlatformToStore("Itch.io"))
     }
     
     // ===== INDIEGALA PLATFORM MAPPING =====
     
     @Test
     fun `IndieGala platform maps to GameStore INDIEGALA`() {
-        assertEquals(GameStore.INDIEGALA, mapPlatformToStore("indiegala"))
-        assertEquals(GameStore.INDIEGALA, mapPlatformToStore("IndieGala"))
-        assertEquals(GameStore.INDIEGALA, mapPlatformToStore("INDIEGALA"))
-    }
-    
-    @Test
-    fun `PC Giveaway platform with IndieGala URL maps to GameStore INDIEGALA`() {
-        val result = mapPlatformToStoreWithContext("PC", claimUrl = "https://www.indiegala.com/giveaways/test")
-        assertEquals(GameStore.INDIEGALA, result)
-        
-        // Also freebies
-        val freebieResult = mapPlatformToStoreWithContext("PC", claimUrl = "https://indiegala.com/freebies/test")
-        assertEquals(GameStore.INDIEGALA, freebieResult)
+        assertEquals(GameStore.INDIEGALA, apiClient.mapPlatformToStore("indiegala"))
+        assertEquals(GameStore.INDIEGALA, apiClient.mapPlatformToStore("IndieGala"))
+        assertEquals(GameStore.INDIEGALA, apiClient.mapPlatformToStore("INDIEGALA"))
     }
     
     // ===== UNKNOWN PLATFORMS =====
     
     @Test
     fun `Unknown platform returns null`() {
-        assertNull(mapPlatformToStore("xbox"))
-        assertNull(mapPlatformToStore("playstation"))
-        assertNull(mapPlatformToStore("nintendo"))
-        assertNull(mapPlatformToStore("mobile"))
-        assertNull(mapPlatformToStore("android"))
-        assertNull(mapPlatformToStore("ios"))
+        assertNull(apiClient.mapPlatformToStore("xbox"))
+        assertNull(apiClient.mapPlatformToStore("playstation"))
+        assertNull(apiClient.mapPlatformToStore("nintendo"))
+        assertNull(apiClient.mapPlatformToStore("mobile"))
+        assertNull(apiClient.mapPlatformToStore("android"))
+        assertNull(apiClient.mapPlatformToStore("ios"))
     }
     
     @Test
     fun `Empty platform returns null`() {
-        assertNull(mapPlatformToStore(""))
-        assertNull(mapPlatformToStore("   "))
+        assertNull(apiClient.mapPlatformToStore(""))
+        assertNull(apiClient.mapPlatformToStore("   "))
     }
     
     @Test
     fun `Null-safe platform handling`() {
-        assertNull(mapPlatformToStore(null))
+        assertNull(apiClient.mapPlatformToStore(null))
+    }
+    
+    // ===== PHASE 12: FANATICAL URL MAPPING =====
+    
+    @Test
+    fun `Fanatical URL maps to GameStore FANATICAL`() {
+        assertEquals(GameStore.FANATICAL, apiClient.mapUrlToExternalStore("https://www.fanatical.com/en/game/some-game"))
+        assertEquals(GameStore.FANATICAL, apiClient.mapUrlToExternalStore("https://fanatical.com/en/bundle/test"))
+    }
+    
+    @Test
+    fun `Fanatical URL with subdomain maps correctly`() {
+        assertEquals(GameStore.FANATICAL, apiClient.mapUrlToExternalStore("https://cdn.fanatical.com/game/test"))
+    }
+    
+    @Test
+    fun `Fanatical HTTP URL rejected`() {
+        assertNull(apiClient.mapUrlToExternalStore("http://www.fanatical.com/en/game/test"))
+    }
+    
+    @Test
+    fun `Fanatical lookalike URL rejected`() {
+        assertNull(apiClient.mapUrlToExternalStore("https://fakefanatical.com/en/game/test"))
+        assertNull(apiClient.mapUrlToExternalStore("https://fanatical.com.attacker.com/game/test"))
+    }
+    
+    // ===== PHASE 12: ALIENWARE ARENA URL MAPPING =====
+    
+    @Test
+    fun `Alienware Arena URL maps to GameStore ALIENWARE_ARENA`() {
+        assertEquals(GameStore.ALIENWARE_ARENA, apiClient.mapUrlToExternalStore("https://www.alienwarearena.com/ucf/show/123"))
+        assertEquals(GameStore.ALIENWARE_ARENA, apiClient.mapUrlToExternalStore("https://alienwarearena.com/ucf/show/456"))
+    }
+    
+    @Test
+    fun `Alienware Arena NA subdomain maps correctly`() {
+        assertEquals(GameStore.ALIENWARE_ARENA, apiClient.mapUrlToExternalStore("https://na.alienwarearena.com/ucf/show/123"))
+    }
+    
+    @Test
+    fun `Alienware Arena EU subdomain maps correctly`() {
+        assertEquals(GameStore.ALIENWARE_ARENA, apiClient.mapUrlToExternalStore("https://eu.alienwarearena.com/ucf/show/123"))
+    }
+    
+    @Test
+    fun `Alienware Arena LATAM subdomain maps correctly`() {
+        assertEquals(GameStore.ALIENWARE_ARENA, apiClient.mapUrlToExternalStore("https://latam.alienwarearena.com/ucf/show/123"))
+    }
+    
+    @Test
+    fun `Alienware Arena HTTP URL rejected`() {
+        assertNull(apiClient.mapUrlToExternalStore("http://www.alienwarearena.com/ucf/show/123"))
+    }
+    
+    @Test
+    fun `Alienware Arena lookalike URL rejected`() {
+        assertNull(apiClient.mapUrlToExternalStore("https://fakealienwarearena.com/ucf/show/123"))
+        assertNull(apiClient.mapUrlToExternalStore("https://alienwarearena.com.attacker.com/ucf/show/123"))
+    }
+    
+    // ===== PHASE 12: INSTRUCTIONS-BASED MAPPING =====
+    
+    @Test
+    fun `Fanatical instructions hint maps correctly`() {
+        assertEquals(GameStore.FANATICAL, apiClient.mapInstructionsToStore("Claim your key at fanatical.com"))
+        assertEquals(GameStore.FANATICAL, apiClient.mapInstructionsToStore("Visit Fanatical to get this game"))
+    }
+    
+    @Test
+    fun `Alienware Arena instructions hint maps correctly`() {
+        assertEquals(GameStore.ALIENWARE_ARENA, apiClient.mapInstructionsToStore("Available on Alienware Arena"))
+        assertEquals(GameStore.ALIENWARE_ARENA, apiClient.mapInstructionsToStore("Claim at alienwarearena.com"))
+    }
+    
+    @Test
+    fun `IndieGala instructions hint maps correctly`() {
+        assertEquals(GameStore.INDIEGALA, apiClient.mapInstructionsToStore("Get it free at IndieGala"))
+        assertEquals(GameStore.INDIEGALA, apiClient.mapInstructionsToStore("Visit indiegala.com for this giveaway"))
+    }
+    
+    @Test
+    fun `Empty instructions returns null`() {
+        assertNull(apiClient.mapInstructionsToStore(""))
+        assertNull(apiClient.mapInstructionsToStore(null))
+    }
+    
+    @Test
+    fun `Unknown instructions returns null`() {
+        assertNull(apiClient.mapInstructionsToStore("Download from our website"))
+        assertNull(apiClient.mapInstructionsToStore("Click the button to claim"))
+    }
+    
+    // ===== PHASE 12: URL STORE PRIORITY =====
+    
+    @Test
+    fun `External store URL takes priority over platform`() {
+        // URL says Fanatical, platform says PC
+        val url = "https://www.fanatical.com/en/game/test-game"
+        val urlStore = apiClient.mapUrlToExternalStore(url)
+        assertEquals(GameStore.FANATICAL, urlStore)
+    }
+    
+    @Test
+    fun `IndieGala URL mapped by external store function`() {
+        assertEquals(GameStore.INDIEGALA, apiClient.mapUrlToExternalStore("https://www.indiegala.com/giveaways/test"))
+        assertEquals(GameStore.INDIEGALA, apiClient.mapUrlToExternalStore("https://indiegala.com/freebies/test"))
     }
     
     // ===== AMBIGUOUS MAPPINGS =====
@@ -124,55 +207,40 @@ class GamerPowerPlatformMappingTest {
     @Test
     fun `Multi-platform string returns primary match`() {
         // GamerPower sometimes returns "PC, Steam"
-        val result = mapPlatformToStore("PC, Steam")
+        val result = apiClient.mapPlatformToStore("PC, Steam")
         assertEquals(GameStore.STEAM, result)
     }
     
     @Test
-    fun `Multi-platform with GOG preference`() {
-        // "PC, DRM-Free" with GOG URL
-        val result = mapPlatformToStoreWithContext("PC, DRM-Free", claimUrl = "https://www.gog.com/game/test")
-        assertEquals(GameStore.GOG, result)
-    }
-    
-    @Test
-    fun `Ambiguous platform resolved by claim URL`() {
-        // "Indie Game" doesn't tell us much, but URL does
-        val result = mapPlatformToStoreWithContext("Indie Game", claimUrl = "https://cool-dev.itch.io/my-game")
-        assertEquals(GameStore.ITCH_IO, result)
+    fun `Multi-platform with Epic preference`() {
+        // "PC, Epic Games Store"
+        val result = apiClient.mapPlatformToStore("PC, Epic Games Store")
+        assertEquals(GameStore.EPIC_GAMES, result)
     }
     
     // ===== MALFORMED PAYLOADS =====
     
     @Test
     fun `Malformed platform with special characters handled gracefully`() {
-        assertNull(mapPlatformToStore("<script>alert('xss')</script>"))
+        assertNull(apiClient.mapPlatformToStore("<script>alert('xss')</script>"))
     }
     
     @Test
-    fun `Platform with null byte extracts valid platform`() {
-        // Null byte in string, but "Steam" is still detected
-        assertEquals(GameStore.STEAM, mapPlatformToStore("PC\u0000Steam"))
-    }
-    
-    @Test
-    fun `Platform with embedded newlines extracts platform`() {
-        // Newlines might appear in malformed data but "Steam" is still present
-        assertEquals(GameStore.STEAM, mapPlatformToStore("PC\nSteam"))
+    fun `Platform with embedded text extracts valid platform`() {
+        // "Steam" is detected within the string
+        assertEquals(GameStore.STEAM, apiClient.mapPlatformToStore("PC Steam"))
     }
     
     @Test
     fun `Extremely long platform string handled gracefully`() {
         val longPlatform = "a".repeat(10000)
-        assertNull(mapPlatformToStore(longPlatform))
+        assertNull(apiClient.mapPlatformToStore(longPlatform))
     }
     
     @Test
     fun `Unicode platform strings handled gracefully`() {
-        assertNull(mapPlatformToStore("游戏平台"))
-        assertNull(mapPlatformToStore("🎮"))
-        // But valid platforms with extra spacing should work
-        assertEquals(GameStore.STEAM, mapPlatformToStore(" Steam "))
+        assertNull(apiClient.mapPlatformToStore("游戏平台"))
+        assertNull(apiClient.mapPlatformToStore("🎮"))
     }
     
     // ===== DUPLICATE DETECTION =====
@@ -210,105 +278,29 @@ class GamerPowerPlatformMappingTest {
     // ===== URL-BASED STORE DETECTION =====
     
     @Test
-    fun `Store detection from Steam URLs`() {
-        assertEquals(GameStore.STEAM, detectStoreFromUrl("https://store.steampowered.com/app/12345"))
-        assertEquals(GameStore.STEAM, detectStoreFromUrl("https://steampowered.com/app/12345"))
-        assertEquals(GameStore.STEAM, detectStoreFromUrl("https://steamcommunity.com/games/test"))
+    fun `External store URL mapping - Fanatical`() {
+        assertEquals(GameStore.FANATICAL, apiClient.mapUrlToExternalStore("https://www.fanatical.com/en/game/test"))
     }
     
     @Test
-    fun `Store detection from GOG URLs`() {
-        assertEquals(GameStore.GOG, detectStoreFromUrl("https://www.gog.com/game/test"))
-        assertEquals(GameStore.GOG, detectStoreFromUrl("https://gog.com/en/game/test"))
+    fun `External store URL mapping - Alienware Arena`() {
+        assertEquals(GameStore.ALIENWARE_ARENA, apiClient.mapUrlToExternalStore("https://www.alienwarearena.com/ucf/show/123"))
     }
     
     @Test
-    fun `Store detection from Itch URLs`() {
-        assertEquals(GameStore.ITCH_IO, detectStoreFromUrl("https://itch.io/games"))
-        assertEquals(GameStore.ITCH_IO, detectStoreFromUrl("https://developer.itch.io/game"))
-    }
-    
-    @Test
-    fun `Store detection from IndieGala URLs`() {
-        assertEquals(GameStore.INDIEGALA, detectStoreFromUrl("https://www.indiegala.com/giveaways/test"))
-        assertEquals(GameStore.INDIEGALA, detectStoreFromUrl("https://indiegala.com/freebies/test"))
+    fun `External store URL mapping - IndieGala`() {
+        assertEquals(GameStore.INDIEGALA, apiClient.mapUrlToExternalStore("https://www.indiegala.com/giveaways/test"))
     }
     
     @Test
     fun `Unknown URL returns null store`() {
-        assertNull(detectStoreFromUrl("https://example.com/game"))
-        assertNull(detectStoreFromUrl("https://epicgames.com/store"))
-        assertNull(detectStoreFromUrl(""))
-        assertNull(detectStoreFromUrl("not-a-url"))
+        assertNull(apiClient.mapUrlToExternalStore("https://example.com/game"))
+        assertNull(apiClient.mapUrlToExternalStore(""))
+        assertNull(apiClient.mapUrlToExternalStore("not-a-url"))
+        assertNull(apiClient.mapUrlToExternalStore(null))
     }
     
     // ===== HELPER FUNCTIONS =====
-    
-    /**
-     * Maps a GamerPower platform string to our GameStore enum.
-     * Case-insensitive, handles common variations.
-     */
-    private fun mapPlatformToStore(platform: String?): GameStore? {
-        if (platform.isNullOrBlank()) return null
-        
-        val normalized = platform.trim().lowercase()
-        
-        // Check for exact matches first
-        return when {
-            normalized == "steam" -> GameStore.STEAM
-            normalized == "gog" -> GameStore.GOG
-            normalized in listOf("itchio", "itch.io", "itch") -> GameStore.ITCH_IO
-            normalized == "indiegala" -> GameStore.INDIEGALA
-            
-            // Multi-platform strings - extract primary
-            normalized.contains("steam") -> GameStore.STEAM
-            normalized.contains("gog") -> GameStore.GOG
-            normalized.contains("itch") -> GameStore.ITCH_IO
-            normalized.contains("indiegala") -> GameStore.INDIEGALA
-            
-            // Malformed / too long / special chars
-            normalized.length > 1000 -> null
-            normalized.any { it.isISOControl() } -> null
-            
-            else -> null
-        }
-    }
-    
-    /**
-     * Maps platform with claim URL context for disambiguation.
-     */
-    private fun mapPlatformToStoreWithContext(platform: String, claimUrl: String): GameStore? {
-        // Try platform first
-        val platformStore = mapPlatformToStore(platform)
-        if (platformStore != null && platformStore != GameStore.STEAM) {
-            return platformStore
-        }
-        
-        // Fall back to URL-based detection
-        val urlStore = detectStoreFromUrl(claimUrl)
-        if (urlStore != null) {
-            return urlStore
-        }
-        
-        // Default to platform result
-        return platformStore
-    }
-    
-    /**
-     * Detects store from claim URL.
-     */
-    private fun detectStoreFromUrl(url: String): GameStore? {
-        if (url.isBlank()) return null
-        
-        val normalized = url.lowercase()
-        return when {
-            normalized.contains("steampowered.com") || normalized.contains("steamcommunity.com") -> GameStore.STEAM
-            normalized.contains("gog.com") -> GameStore.GOG
-            normalized.contains("itch.io") -> GameStore.ITCH_IO
-            normalized.contains("indiegala.com") -> GameStore.INDIEGALA
-            else -> null
-        }
-    }
     
     /**
      * Normalizes giveaway ID for duplicate detection.

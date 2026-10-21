@@ -203,13 +203,13 @@ class StoreAdapterTest {
     // ===== Factory Tests =====
     
     @Test
-    fun `DefaultStoreAdapterFactory returns all Phase 11 adapters`() {
+    fun `DefaultStoreAdapterFactory returns all Phase 12 adapters`() {
         val factory = DefaultStoreAdapterFactory()
         
         val adapters = factory.getAllAdapters()
         
-        // Phase 11: Now includes Fab and Unity Asset Store (10 total)
-        assertEquals(10, adapters.size)
+        // Phase 12: Now includes Fanatical and Alienware Arena (12 total)
+        assertEquals(12, adapters.size)
         assertTrue(adapters.any { it.store == GameStore.STEAM })
         assertTrue(adapters.any { it.store == GameStore.GOG })
         assertTrue(adapters.any { it.store == GameStore.ITCH_IO })
@@ -218,6 +218,8 @@ class StoreAdapterTest {
         assertTrue(adapters.any { it.store == GameStore.AMAZON_PRIME })
         assertTrue(adapters.any { it.store == GameStore.FAB })
         assertTrue(adapters.any { it.store == GameStore.UNITY_ASSET_STORE })
+        assertTrue(adapters.any { it.store == GameStore.FANATICAL })
+        assertTrue(adapters.any { it.store == GameStore.ALIENWARE_ARENA })
     }
     
     @Test
@@ -249,8 +251,8 @@ class StoreAdapterTest {
         
         val discoveryAdapters = factory.getDiscoveryAdapters()
         
-        // Phase 11: All 10 adapters support discovery
-        assertEquals(10, discoveryAdapters.size)
+        // Phase 12: All 12 adapters support discovery
+        assertEquals(12, discoveryAdapters.size)
         assertTrue(discoveryAdapters.all { it.supportsDiscovery })
     }
     

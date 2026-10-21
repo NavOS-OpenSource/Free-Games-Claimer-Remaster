@@ -451,6 +451,42 @@ data class StoreAuthConfig(
                     "pay.unity.com"
                 )
             )
+            
+            // Phase 12 additions
+            GameStore.FANATICAL -> StoreAuthConfig(
+                store = store,
+                // NOTE: Fanatical uses modal-based login, not a dedicated URL
+                // The loginUrl here opens the page where the modal can be triggered
+                loginUrl = "https://www.fanatical.com/en",
+                logoutUrl = null, // Logout via modal interaction
+                successUrlPatterns = listOf(
+                    "https://www.fanatical.com/" // Check for bsauth localStorage
+                ),
+                mfaUrlPatterns = emptyList(), // MFA patterns unknown
+                errorUrlPatterns = emptyList(), // Error patterns unknown
+                allowedDomains = listOf(
+                    "fanatical.com"
+                )
+            )
+            
+            GameStore.ALIENWARE_ARENA -> StoreAuthConfig(
+                store = store,
+                loginUrl = "https://www.alienwarearena.com/login",
+                logoutUrl = "https://www.alienwarearena.com/logout",
+                successUrlPatterns = listOf(
+                    "https://www.alienwarearena.com/member/",
+                    "https://na.alienwarearena.com/member/",
+                    "https://eu.alienwarearena.com/member/",
+                    "https://www.alienwarearena.com/ucf/show/"
+                ),
+                mfaUrlPatterns = emptyList(), // MFA patterns unknown
+                errorUrlPatterns = listOf(
+                    "https://www.alienwarearena.com/login?error="
+                ),
+                allowedDomains = listOf(
+                    "alienwarearena.com"
+                )
+            )
         }
     }
 }
