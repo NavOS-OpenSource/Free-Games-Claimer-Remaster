@@ -109,6 +109,34 @@ class UrlValidatorInstrumentedTest {
         assertFalse(validator.isValidClaimUrl("https://epicgames.phishing.com/test"))
     }
     
+    // ===== Deceptive Hostname Suffix Attacks =====
+    
+    @Test
+    fun rejectsSuffixAttackDomains() {
+        // attacker.example embeds trusted domain as suffix - MUST be rejected
+        assertFalse(validator.isValidClaimUrl("https://steamcommunity.com.attacker.example/game"))
+        assertFalse(validator.isValidClaimUrl("https://epicgames.com.evil.com/game"))
+        assertFalse(validator.isValidClaimUrl("https://gog.com.phishing.net/game"))
+        assertFalse(validator.isValidClaimUrl("https://store.steampowered.com.fake.org/game"))
+    }
+    
+    @Test
+    fun rejectsLookalikeDomains() {
+        // Lookalike domains that could fool users
+        assertFalse(validator.isValidClaimUrl("https://epic-games.com/game"))
+        assertFalse(validator.isValidClaimUrl("https://epicgames-store.com/game"))
+        assertFalse(validator.isValidClaimUrl("https://steampowered-store.com/game"))
+        assertFalse(validator.isValidClaimUrl("https://g0g.com/game")) // zero instead of o
+        assertFalse(validator.isValidClaimUrl("https://gogg.com/game"))
+    }
+    
+    @Test
+    fun rejectsPrefixAttackDomains() {
+        // attacker.example uses trusted domain as prefix
+        assertFalse(validator.isValidClaimUrl("https://epicgames.com.attacker.com/game"))
+        assertFalse(validator.isValidClaimUrl("https://gog.com-free-games.net/game"))
+    }
+    
     @Test
     fun subdomainsOfTrustedDomainsAreAccepted() {
         assertTrue(validator.isValidClaimUrl("https://store.epicgames.com/game"))

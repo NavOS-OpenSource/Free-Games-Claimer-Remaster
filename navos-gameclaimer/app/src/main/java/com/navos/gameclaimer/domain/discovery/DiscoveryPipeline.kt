@@ -280,10 +280,28 @@ interface UrlValidator {
  * - Validates URL structure and host
  * - Rejects deceptive hostnames (IP addresses, localhost, private ranges)
  * - Rejects user info in URLs (potential credential leak)
+ * - Trusted domain allowlist with SAFE suffix matching (requires leading dot)
  * 
- * NOTE: Redirect handling is done at claim time by the WebView/browser.
- * Discovery URLs only LINK to giveaway pages - they do not trigger claims.
- * The WebView's navigation handler must re-validate any redirect destinations.
+ * REDIRECT SECURITY BOUNDARY:
+ * This validator checks the INITIAL URL from discovery sources. It does NOT
+ * validate redirect destinations. This is intentional:
+ * 
+ * 1. Phase 6 (Discovery) is READ-ONLY - it stores giveaway metadata but
+ *    NEVER navigates to URLs or triggers claims automatically.
+ * 
+ * 2. A trusted starting URL (e.g., gamerpower.com) does NOT guarantee the
+ *    final destination after redirects is also trusted.
+ * 
+ * 3. MANDATORY FOR FUTURE CLAIM PHASES: When implementing store-specific
+ *    claim flows (Phase 7+), the WebView/browser navigation handler MUST:
+ *    - Intercept ALL navigation events (shouldOverrideUrlLoading)
+ *    - Re-validate each redirect destination against trusted domains
+ *    - Block navigation to untrusted destinations
+ *    - Never auto-submit forms or trigger purchases
+ *    - Require explicit user confirmation before any claim action
+ * 
+ * 4. The claim workflow MUST re-validate the final URL before executing
+ *    any authenticated action, treating discovery URLs as untrusted hints.
  */
 class DefaultUrlValidator : UrlValidator {
     
@@ -291,7 +309,14 @@ class DefaultUrlValidator : UrlValidator {
         "javascript", "file", "content", "intent", "data", "blob"
     )
     
-    // Known trusted store domains (claim URLs must be on these)
+    /**
+     * Known trusted store domains for claim URLs.
+     * 
+     * MATCHING LOGIC: Uses exact match OR safe subdomain match with leading dot.
+     * - "epicgames.com" matches: epicgames.com, store.epicgames.com, www.epicgames.com
+     * - "epicgames.com" does NOT match: epicgames.com.attacker.example (no leading dot)
+     * - "epicgames.com" does NOT match: fakeepicgames.com (different domain)
+     */
     private val trustedClaimDomains = setOf(
         "store.epicgames.com",
         "epicgames.com",
@@ -300,7 +325,7 @@ class DefaultUrlValidator : UrlValidator {
         "gog.com",
         "amazon.com",
         "gaming.amazon.com",
-        "gamerpower.com",  // Redirect page
+        "gamerpower.com",  // Redirect page - final destination must be re-validated
         "indiegala.com",
         "itch.io",
         "humblebundle.com"
@@ -401,10 +426,19 @@ class DefaultUrlValidator : UrlValidator {
     
     /**
      * Check if host is a trusted store domain.
+     * 
+     * SAFE MATCHING: Uses exact match OR subdomain match with LEADING DOT.
+     * This prevents suffix attacks:
+     * - "gog.com" matches: gog.com, www.gog.com, store.gog.com
+     * - "gog.com" rejects: gog.com.attacker.example (no leading dot before "gog.com")
+     * - "gog.com" rejects: fakegog.com (different domain entirely)
      */
     private fun isTrustedDomain(host: String): Boolean {
         val lower = host.lowercase()
         return trustedClaimDomains.any { domain ->
+            // Exact match: host == "gog.com"
+            // Subdomain match: host == "www.gog.com" ends with ".gog.com"
+            // Leading dot prevents: "gog.com.evil.com" matching (it ends with "m.evil.com")
             lower == domain || lower.endsWith(".$domain")
         }
     }
