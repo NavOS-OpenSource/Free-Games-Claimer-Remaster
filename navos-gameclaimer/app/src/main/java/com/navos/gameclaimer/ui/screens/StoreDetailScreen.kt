@@ -16,13 +16,14 @@ import com.navos.gameclaimer.domain.model.GameStore
  * Store detail screen showing store-specific settings and auth status.
  * 
  * Phase 3: Basic UI structure
- * Phase 5+: Will show WebView for authentication
+ * Phase 5: WebView authentication integration
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StoreDetailScreen(
     storeId: String,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onNavigateToAuth: () -> Unit = {}
 ) {
     val store = remember(storeId) {
         GameStore.entries.find { it.name == storeId }
@@ -90,11 +91,10 @@ fun StoreDetailScreen(
                     }
                 }
                 
-                // Connect Button (Phase 5+ will launch WebView auth)
+                // Connect Button - launches browser auth
                 Button(
-                    onClick = { /* Phase 5: Launch WebView auth */ },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = false // Disabled until Phase 5
+                    onClick = onNavigateToAuth,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Connect Account")
                 }

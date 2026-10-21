@@ -4,6 +4,8 @@ import androidx.compose.runtime.Composable
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.navos.gameclaimer.domain.model.GameStore
+import com.navos.gameclaimer.ui.screens.BrowserAuthScreen
 import com.navos.gameclaimer.ui.screens.HomeScreen
 import com.navos.gameclaimer.ui.screens.SettingsScreen
 import com.navos.gameclaimer.ui.screens.StoreDetailScreen
@@ -15,8 +17,10 @@ object Routes {
     const val HOME = "home"
     const val SETTINGS = "settings"
     const val STORE_DETAIL = "store/{storeId}"
+    const val BROWSER_AUTH = "browser_auth/{storeId}"
     
     fun storeDetail(storeId: String) = "store/$storeId"
+    fun browserAuth(storeId: String) = "browser_auth/$storeId"
 }
 
 /**
@@ -49,7 +53,18 @@ fun GameClaimerNavHost() {
             val storeId = backStackEntry.arguments?.getString("storeId") ?: ""
             StoreDetailScreen(
                 storeId = storeId,
-                onNavigateBack = { navController.popBackStack() }
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToAuth = { navController.navigate(Routes.browserAuth(storeId)) }
+            )
+        }
+        
+        composable(Routes.BROWSER_AUTH) { backStackEntry ->
+            val storeId = backStackEntry.arguments?.getString("storeId") ?: ""
+            val store = GameStore.entries.find { it.name == storeId } ?: GameStore.EPIC_GAMES
+            BrowserAuthScreen(
+                store = store,
+                onAuthComplete = { navController.popBackStack() },
+                onCancel = { navController.popBackStack() }
             )
         }
     }
