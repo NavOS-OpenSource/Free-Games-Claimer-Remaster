@@ -5,7 +5,13 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.devtools.ksp")
+}
+
+// Room schema export for migration testing
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 android {
@@ -108,6 +114,9 @@ dependencies {
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+
+    // Serialization (for export/import JSON)
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.1")
 
     // Unit Testing
     testImplementation("junit:junit:4.13.2")
