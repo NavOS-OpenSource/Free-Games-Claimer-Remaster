@@ -11,6 +11,87 @@ import com.navos.gameclaimer.domain.model.StoreAccount
 import com.navos.gameclaimer.domain.repository.AuthRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
+/**
+ * Result of cookie removal operation.
+ */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+sealed class CookieRemovalResult {
+    /** Cookies were successfully removed */
+    data object Success : CookieRemovalResult()
+    
+    /** No cookies existed to remove (also success) */
+    data object NoCookies : CookieRemovalResult()
+    
+    /** Operation timed out - cookie state is uncertain */
+    data object Timeout : CookieRemovalResult()
+    
+    /** Operation was cancelled - cookie state is uncertain */
+    data object Cancelled : CookieRemovalResult()
+    
+    fun isSuccessful(): Boolean = this is Success || this is NoCookies
+    fun isUncertain(): Boolean = this is Timeout || this is Cancelled
+}
+
+/**
+ * Interface for cookie removal operations - allows testing with fakes.
+ */
+interface CookieRemovalService {
+    /**
+     * Remove all cookies and return the result.
+     * @param timeoutMs Timeout in milliseconds
+     * @return Result indicating success, no cookies, timeout, or cancellation
+     */
+    suspend fun removeAllCookies(timeoutMs: Long = 5000L): CookieRemovalResult
+    
+    /**
+     * Check if cookies exist for a URL.
+     */
+    fun hasCookies(url: String): Boolean
+}
+
+/**
+ * Default implementation using Android's CookieManager.
+ */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+class AndroidCookieRemovalService : CookieRemovalService {
+    override suspend fun removeAllCookies(timeoutMs: Long): CookieRemovalResult {
+        return kotlinx.coroutines.suspendCancellableCoroutine { continuation ->
+            val cookieManager = CookieManager.getInstance()
+            
+            // Set a timeout
+            val timeoutHandler = android.os.Handler(android.os.Looper.getMainLooper())
+            val timeoutRunnable = Runnable {
+                if (continuation.isActive) {
+                    continuation.resume(CookieRemovalResult.Timeout) {}
+                }
+            }
+            timeoutHandler.postDelayed(timeoutRunnable, timeoutMs)
+            
+            cookieManager.removeAllCookies { hadCookies ->
+                timeoutHandler.removeCallbacks(timeoutRunnable)
+                cookieManager.flush()
+                if (continuation.isActive) {
+                    // false means no cookies existed - that's still success
+                    val result = if (hadCookies) CookieRemovalResult.Success else CookieRemovalResult.NoCookies
+                    continuation.resume(result) {}
+                }
+            }
+            
+            continuation.invokeOnCancellation {
+                timeoutHandler.removeCallbacks(timeoutRunnable)
+                // Don't resume - cancellation is handled by the coroutine
+            }
+        }
+    }
+    
+    override fun hasCookies(url: String): Boolean {
+        val cookies = CookieManager.getInstance().getCookie(url)
+        return !cookies.isNullOrEmpty()
+    }
+}
 
 /**
  * Phase 5: Authentication Repository Implementation
@@ -30,9 +111,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
  *    - NO actual session tokens stored in Room
  *    - Session validity determined by cookie presence + server check
  * 
- * 3. Future Enhancement (Phase 5+):
- *    - For APIs that return explicit tokens (not cookie-based),
- *      encrypt tokens using Android Keystore before Room storage
+ * LOGOUT SEMANTICS:
+ * - All logout operations are serialized via mutex to prevent races
+ * - State is only updated AFTER cookie removal completes
+ * - On uncertain outcomes (timeout/cancellation), no store remains authenticated
+ * - CookieManager.removeAllCookies(false) means "no cookies existed" (success)
  * 
  * WHAT THIS DOES NOT DO:
  * - Does NOT encrypt WebView cookies (platform limitation)
@@ -40,8 +123,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
  * - Does NOT log any credential information
  */
 class AuthRepositoryImpl(
-    private val sessionDao: StoreSessionDao
+    private val sessionDao: StoreSessionDao,
+    private val cookieService: CookieRemovalService = AndroidCookieRemovalService()
 ) : AuthRepository {
+    
+    // Mutex to serialize logout operations - prevents concurrent clear races
+    private val logoutMutex = Mutex()
+    
+    // Monotonically increasing version to detect stale callbacks
+    private var stateVersion = 0L
     
     // In-memory state flows for each store
     private val authStates = mutableMapOf<GameStore, MutableStateFlow<AuthSessionState>>()
@@ -166,61 +256,77 @@ class AuthRepositoryImpl(
         authStates[store]?.value = AuthSessionState.FAILED
     }
     
-    override suspend fun logout(store: GameStore) {
-        // IMPORTANT: WebView CookieManager shares cookies across all stores.
-        // Calling removeAllCookies() will sign out ALL stores, not just this one.
-        // We cannot do per-store cookie removal reliably.
+    override suspend fun logout(store: GameStore) = logoutMutex.withLock {
+        // Capture version at start of operation
+        val operationVersion = ++stateVersion
         
         // Clear persisted session for requested store FIRST
-        // This ensures we don't have stale DB state
         sessionDao.delete(store.name)
         
-        // Clear ALL cookies and WAIT for completion
-        // This is async - we must wait before updating state
-        val cookiesClearedSuccessfully = clearAllCookiesAndWait()
+        // Clear ALL cookies and wait for completion
+        val result = cookieService.removeAllCookies()
         
-        if (cookiesClearedSuccessfully) {
-            // Only update state AFTER cookies are confirmed cleared
-            sessions.remove(store)
-            authStates[store]?.value = AuthSessionState.LOGGED_OUT
-            
-            // Mark ALL stores as potentially logged out since cookies are shared
-            // This ensures we don't falsely report authentication for other stores
-            GameStore.entries.forEach { otherStore ->
-                if (otherStore != store) {
-                    // Mark as EXPIRED to force re-verification, not LOGGED_OUT
-                    // because we didn't explicitly log them out
-                    if (sessions[otherStore] != null) {
+        // Check if we're still the current operation (no concurrent logout overwrote us)
+        if (stateVersion != operationVersion) {
+            // A newer operation started - don't update state, it will handle it
+            return@withLock
+        }
+        
+        when {
+            result.isSuccessful() -> {
+                // Success - update state
+                sessions.remove(store)
+                authStates[store]?.value = AuthSessionState.LOGGED_OUT
+                
+                // Mark ALL other stores as EXPIRED since cookies are shared
+                GameStore.entries.forEach { otherStore ->
+                    if (otherStore != store && sessions[otherStore] != null) {
                         sessions.remove(otherStore)
                         authStates[otherStore]?.value = AuthSessionState.EXPIRED
                     }
                 }
             }
-        } else {
-            // Cookie clearing failed - do NOT report logged out
-            // Mark as FAILED instead so user knows to retry
-            authStates[store]?.value = AuthSessionState.FAILED
+            result.isUncertain() -> {
+                // Timeout or cancellation - cookie state unknown
+                // SAFETY: Mark ALL stores as EXPIRED to force re-verification
+                // Never leave any store marked AUTHENTICATED with uncertain cookie state
+                sessions.clear()
+                GameStore.entries.forEach { s ->
+                    authStates[s]?.value = AuthSessionState.EXPIRED
+                }
+            }
         }
     }
     
-    override suspend fun logoutAll() {
+    override suspend fun logoutAll() = logoutMutex.withLock {
+        val operationVersion = ++stateVersion
+        
         // Clear all persisted sessions first
         sessionDao.deleteAll()
         
-        // Clear all cookies and wait for completion
-        val cookiesClearedSuccessfully = clearAllCookiesAndWait()
+        // Clear all cookies and wait
+        val result = cookieService.removeAllCookies()
         
-        if (cookiesClearedSuccessfully) {
-            // Only update state after confirmed clear
-            sessions.clear()
-            accounts.clear()
-            GameStore.entries.forEach { store ->
-                authStates[store]?.value = AuthSessionState.LOGGED_OUT
+        // Check version
+        if (stateVersion != operationVersion) {
+            return@withLock
+        }
+        
+        when {
+            result.isSuccessful() -> {
+                sessions.clear()
+                accounts.clear()
+                GameStore.entries.forEach { store ->
+                    authStates[store]?.value = AuthSessionState.LOGGED_OUT
+                }
             }
-        } else {
-            // Cookie clearing failed - mark all as FAILED
-            GameStore.entries.forEach { store ->
-                authStates[store]?.value = AuthSessionState.FAILED
+            result.isUncertain() -> {
+                // Cookie state unknown - mark all EXPIRED for safety
+                sessions.clear()
+                accounts.clear()
+                GameStore.entries.forEach { store ->
+                    authStates[store]?.value = AuthSessionState.EXPIRED
+                }
             }
         }
     }
@@ -244,43 +350,7 @@ class AuthRepositoryImpl(
      * SECURITY: We only check presence, never expose cookie values.
      */
     private fun hasCookiesForStore(store: GameStore): Boolean {
-        val cookies = CookieManager.getInstance().getCookie(store.baseUrl)
-        return !cookies.isNullOrEmpty()
-    }
-    
-    /**
-     * Clear all WebView cookies and wait for completion.
-     * 
-     * Note: CookieManager.removeAllCookies() is asynchronous.
-     * We use suspendCancellableCoroutine to wait for the callback.
-     * 
-     * @return true if cookies were cleared successfully, false on timeout
-     */
-    private suspend fun clearAllCookiesAndWait(): Boolean {
-        return kotlinx.coroutines.suspendCancellableCoroutine { continuation ->
-            val cookieManager = CookieManager.getInstance()
-            
-            // Set a timeout to prevent hanging forever
-            val timeoutHandler = android.os.Handler(android.os.Looper.getMainLooper())
-            val timeoutRunnable = Runnable {
-                if (continuation.isActive) {
-                    continuation.resume(false) {}
-                }
-            }
-            timeoutHandler.postDelayed(timeoutRunnable, 5000) // 5 second timeout
-            
-            cookieManager.removeAllCookies { success ->
-                timeoutHandler.removeCallbacks(timeoutRunnable)
-                cookieManager.flush()
-                if (continuation.isActive) {
-                    continuation.resume(success) {}
-                }
-            }
-            
-            continuation.invokeOnCancellation {
-                timeoutHandler.removeCallbacks(timeoutRunnable)
-            }
-        }
+        return cookieService.hasCookies(store.baseUrl)
     }
     
     /**
