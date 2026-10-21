@@ -137,11 +137,9 @@ class AuthRepositoryImpl(
         )
         
         sessions[store] = session
-        accounts.getOrPut(store) { mutableListOf() }.let { list ->
-            // Remove existing account with same ID, add new
-            list.removeAll { it.id == account.id }
-            list.add(account)
-        }
+        // LIMITATION: Only one active account per store
+        // Replace any existing account for this store
+        accounts[store] = mutableListOf(account)
         
         // Persist session metadata (NOT tokens)
         val entity = StoreSessionEntity(
@@ -150,8 +148,7 @@ class AuthRepositoryImpl(
             displayName = account.displayName,
             lastVerified = System.currentTimeMillis(),
             isAuthenticated = true,
-            sessionTokenEncrypted = null, // We don't store tokens
-            isSecret = false
+            isSecret = true
         )
         sessionDao.upsert(entity)
         
@@ -170,18 +167,33 @@ class AuthRepositoryImpl(
     }
     
     override suspend fun logout(store: GameStore) {
-        // Clear in-memory state
+        // IMPORTANT: WebView CookieManager shares cookies across all stores.
+        // Calling removeAllCookies() will sign out ALL stores, not just this one.
+        // We cannot do per-store cookie removal reliably.
+        
+        // Clear in-memory state for requested store
         sessions.remove(store)
         authStates[store]?.value = AuthSessionState.LOGGED_OUT
         
-        // Clear persisted session
+        // Clear persisted session for requested store
         sessionDao.delete(store.name)
         
-        // Clear cookies for this store's domain
-        // Note: CookieManager doesn't support per-domain clearing easily
-        // We clear all and require re-authentication for other stores too
-        // This is a trade-off for security
+        // Clear ALL cookies - this affects ALL stores
+        // This is documented behavior, not a bug
         clearAllCookies()
+        
+        // Mark ALL stores as potentially logged out since cookies are shared
+        // This ensures we don't falsely report authentication for other stores
+        GameStore.entries.forEach { otherStore ->
+            if (otherStore != store) {
+                // Mark as EXPIRED to force re-verification, not LOGGED_OUT
+                // because we didn't explicitly log them out
+                if (sessions[otherStore] != null) {
+                    sessions.remove(otherStore)
+                    authStates[otherStore]?.value = AuthSessionState.EXPIRED
+                }
+            }
+        }
     }
     
     override suspend fun logoutAll() {
@@ -196,6 +208,9 @@ class AuthRepositoryImpl(
         
         // Clear all cookies
         clearAllCookies()
+        
+        // Clear all accounts
+        accounts.clear()
     }
     
     override suspend fun removeAccount(accountId: String) {
@@ -234,11 +249,18 @@ class AuthRepositoryImpl(
     
     /**
      * Restore session state from persisted data on app startup.
+     * 
+     * SECURITY: We only restore sessions where both:
+     * 1. Persisted metadata says authenticated
+     * 2. Cookies still exist in CookieManager
+     * 
+     * If cookies are missing, the session is marked EXPIRED, not AUTHENTICATED.
+     * This prevents falsely reporting auth status after process death/restart.
      */
     suspend fun restoreSessions() {
         GameStore.entries.forEach { store ->
             val entity = sessionDao.getSession(store.name)
-            if (entity != null && entity.isAuthenticated && !entity.isSecret) {
+            if (entity != null && entity.isAuthenticated) {
                 // Check if cookies still exist
                 if (hasCookiesForStore(store)) {
                     val session = AuthSession(
@@ -258,11 +280,15 @@ class AuthRepositoryImpl(
                         avatarUrl = null,
                         lastActiveAt = entity.lastVerified
                     )
-                    accounts.getOrPut(store) { mutableListOf() }.add(account)
+                    // Only one account per store
+                    accounts[store] = mutableListOf(account)
                     
                     authStates[store]?.value = AuthSessionState.AUTHENTICATED
                 } else {
-                    // Cookies expired - session invalid
+                    // Cookies expired/missing - session invalid
+                    // Update persisted state to reflect reality
+                    val updatedEntity = entity.copy(isAuthenticated = false)
+                    sessionDao.upsert(updatedEntity)
                     authStates[store]?.value = AuthSessionState.EXPIRED
                 }
             }

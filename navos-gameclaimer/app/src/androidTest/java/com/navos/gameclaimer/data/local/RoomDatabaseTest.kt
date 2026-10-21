@@ -200,7 +200,6 @@ class RoomDatabaseTest {
             displayName = "TestUser",
             lastVerified = System.currentTimeMillis(),
             isAuthenticated = true,
-            sessionTokenEncrypted = "encrypted_token_data",
             isSecret = true
         )
         storeSessionDao.upsert(session)
@@ -209,7 +208,7 @@ class RoomDatabaseTest {
         val stored = storeSessionDao.getSession("epic")
         assertNotNull(stored)
         
-        // Export should NOT include sessions
+        // Export should NOT include sessions (isSecret = true)
         val exportManager = DataExportManager(context, db)
         val result = exportManager.exportToJson()
         
@@ -217,9 +216,7 @@ class RoomDatabaseTest {
         val json = (result as ExportResult.Success).json
         
         // Sessions should never appear in export
-        assertFalse(json.contains("sessionTokenEncrypted"))
-        assertFalse(json.contains("encrypted_token_data"))
-        assertFalse(json.contains("store_sessions"))
+        assertFalse("Export should not contain store_sessions", json.contains("store_sessions"))
     }
     
     // ===========================================

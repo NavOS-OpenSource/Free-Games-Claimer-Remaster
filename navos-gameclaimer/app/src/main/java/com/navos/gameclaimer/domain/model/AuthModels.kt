@@ -216,6 +216,14 @@ sealed class BrowserAuthEvent {
 
 /**
  * Configuration for store-specific authentication behavior.
+ * 
+ * ACCOUNT ISOLATION LIMITATION (Phase 5 design decision):
+ * Android WebView's CookieManager shares cookies across all WebViews in the app's
+ * single browser profile. True per-account session isolation would require separate
+ * processes or custom cookie encryption - neither is implemented.
+ * 
+ * Therefore: ONLY ONE ACTIVE ACCOUNT PER STORE is supported.
+ * The data model tracks which account is active, but browser sessions are NOT isolated.
  */
 data class StoreAuthConfig(
     val store: GameStore,
@@ -225,7 +233,6 @@ data class StoreAuthConfig(
     val mfaUrlPatterns: List<String>, // URLs that indicate MFA challenge
     val errorUrlPatterns: List<String>, // URLs that indicate error
     val allowedDomains: List<String>, // Domains allowed during auth flow
-    val supportsMultipleAccounts: Boolean = false,
     val sessionDurationHint: Long? = null // Expected session duration in ms
 ) {
     companion object {
@@ -234,6 +241,9 @@ data class StoreAuthConfig(
          * 
          * Note: These are starting points - actual detection may need refinement
          * based on store-specific behavior during implementation.
+         * 
+         * LIMITATION: Only one active account per store is supported due to
+         * WebView cookie sharing. See class documentation.
          */
         fun forStore(store: GameStore): StoreAuthConfig = when (store) {
             GameStore.EPIC_GAMES -> StoreAuthConfig(
@@ -253,8 +263,7 @@ data class StoreAuthConfig(
                 allowedDomains = listOf(
                     "epicgames.com",
                     "unrealengine.com" // Epic's auth can redirect here
-                ),
-                supportsMultipleAccounts = true
+                )
             )
             
             GameStore.GOG -> StoreAuthConfig(
@@ -273,8 +282,7 @@ data class StoreAuthConfig(
                 ),
                 allowedDomains = listOf(
                     "gog.com"
-                ),
-                supportsMultipleAccounts = true
+                )
             )
             
             GameStore.STEAM -> StoreAuthConfig(
@@ -295,8 +303,7 @@ data class StoreAuthConfig(
                 allowedDomains = listOf(
                     "steampowered.com",
                     "steamcommunity.com"
-                ),
-                supportsMultipleAccounts = false // Steam typically single-account
+                )
             )
             
             GameStore.AMAZON_PRIME -> StoreAuthConfig(
@@ -317,8 +324,7 @@ data class StoreAuthConfig(
                 allowedDomains = listOf(
                     "amazon.com",
                     "gaming.amazon.com"
-                ),
-                supportsMultipleAccounts = true
+                )
             )
         }
     }

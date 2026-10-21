@@ -67,7 +67,8 @@ interface SettingsDao {
 /**
  * DAO for store sessions.
  * 
- * SECURITY: getForExport() excludes secret fields.
+ * SECURITY: Sessions contain only metadata, never tokens/cookies.
+ * The isSecret flag ensures this table is excluded from exports.
  */
 @Dao
 interface StoreSessionDao {
@@ -80,10 +81,6 @@ interface StoreSessionDao {
     
     @Query("SELECT * FROM store_sessions")
     suspend fun getAllSessions(): List<StoreSessionEntity>
-    
-    // For export - EXCLUDES sessionTokenEncrypted
-    @Query("SELECT id, store, displayName, lastVerified, isAuthenticated, NULL as sessionTokenEncrypted, 0 as isSecret FROM store_sessions")
-    suspend fun getAllForExport(): List<StoreSessionEntity>
     
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(session: StoreSessionEntity)

@@ -80,6 +80,13 @@ class SecureBrowserWrapper(
             // Set up WebChromeClient for progress/title
             webChromeClient = createWebChromeClient()
             
+            // SECURITY: Block all downloads
+            setDownloadListener { url, _, _, _, _ ->
+                eventChannel.trySend(
+                    BrowserAuthEvent.NavigationBlocked(url, "Downloads are not allowed")
+                )
+            }
+            
             webView = this
         }
     }
@@ -112,6 +119,9 @@ class SecureBrowserWrapper(
             // SECURITY: Use safe browsing if available
             safeBrowsingEnabled = true
             
+            // SECURITY: Block mixed content (HTTP on HTTPS page)
+            mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            
             // Use default WebView user agent
             // Do NOT spoof as desktop Chrome - stores may behave differently
             
@@ -127,6 +137,10 @@ class SecureBrowserWrapper(
             
             // Text zoom - allow for accessibility
             textZoom = 100
+            
+            // SECURITY: Disable support for multiple windows/popups
+            setSupportMultipleWindows(false)
+            javaScriptCanOpenWindowsAutomatically = false
         }
         
         // SECURITY: Disable WebView debugging in release builds
@@ -236,7 +250,7 @@ class SecureBrowserWrapper(
     }
     
     /**
-     * Create WebChromeClient for title/progress.
+     * Create WebChromeClient for title/progress with popup blocking.
      */
     private fun createWebChromeClient(): WebChromeClient {
         return object : WebChromeClient() {
@@ -248,6 +262,22 @@ class SecureBrowserWrapper(
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                 super.onProgressChanged(view, newProgress)
                 isLoading = newProgress < 100
+            }
+            
+            /**
+             * SECURITY: Block all popup/new window requests.
+             */
+            override fun onCreateWindow(
+                view: WebView?,
+                isDialog: Boolean,
+                isUserGesture: Boolean,
+                resultMsg: android.os.Message?
+            ): Boolean {
+                // Return false to block popup creation
+                eventChannel.trySend(
+                    BrowserAuthEvent.NavigationBlocked("popup", "Popup windows are not allowed")
+                )
+                return false
             }
         }
     }
@@ -375,7 +405,7 @@ class SecureBrowserWrapper(
     
     // ===== URL Validation =====
     
-    private data class UrlValidation(
+    data class UrlValidation(
         val isValid: Boolean,
         val reason: String = ""
     )
@@ -384,56 +414,84 @@ class SecureBrowserWrapper(
      * Validate URL for security.
      * 
      * SECURITY: This is a critical security gate.
+     * Uses parsed URL components, not string matching.
      */
     private fun validateUrl(url: String): UrlValidation {
         val trimmed = url.trim()
         
-        // Must be HTTPS
-        if (!trimmed.startsWith("https://", ignoreCase = true)) {
-            return UrlValidation(false, "Only HTTPS URLs allowed")
+        // Parse URL to extract components safely
+        val parsedUrl = try {
+            android.net.Uri.parse(trimmed)
+        } catch (e: Exception) {
+            return UrlValidation(false, "Invalid URL format")
         }
         
-        // Block localhost and private IPs
-        val blockedPatterns = listOf(
+        val scheme = parsedUrl.scheme?.lowercase() ?: ""
+        val host = parsedUrl.host?.lowercase() ?: ""
+        val port = parsedUrl.port
+        val userInfo = parsedUrl.userInfo
+        
+        // SECURITY: Only HTTPS allowed
+        if (scheme != "https") {
+            return UrlValidation(false, "Only HTTPS URLs allowed (scheme: $scheme)")
+        }
+        
+        // SECURITY: Block dangerous schemes (defense in depth)
+        val blockedSchemes = listOf("javascript", "file", "content", "intent", "data", "blob")
+        if (blockedSchemes.contains(scheme)) {
+            return UrlValidation(false, "Blocked URL scheme: $scheme")
+        }
+        
+        // SECURITY: Reject URLs with user-info (user:pass@host) - potential phishing
+        if (!userInfo.isNullOrEmpty()) {
+            return UrlValidation(false, "URLs with credentials are not allowed")
+        }
+        
+        // SECURITY: Block non-standard ports (except 443 for HTTPS)
+        if (port != -1 && port != 443) {
+            return UrlValidation(false, "Non-standard port not allowed: $port")
+        }
+        
+        // SECURITY: Host must not be empty
+        if (host.isEmpty()) {
+            return UrlValidation(false, "Missing hostname")
+        }
+        
+        // SECURITY: Block localhost and private IPs
+        val blockedHosts = listOf(
             "localhost",
             "127.0.0.1",
-            "192.168.",
-            "10.0.",
-            "172.16.",
-            "172.17.",
-            "172.18.",
-            "172.19.",
-            "172.20.",
-            "172.21.",
-            "172.22.",
-            "172.23.",
-            "172.24.",
-            "172.25.",
-            "172.26.",
-            "172.27.",
-            "172.28.",
-            "172.29.",
-            "172.30.",
-            "172.31.",
             "0.0.0.0",
             "[::1]"
         )
+        if (blockedHosts.contains(host)) {
+            return UrlValidation(false, "Local addresses blocked")
+        }
         
-        for (pattern in blockedPatterns) {
-            if (trimmed.contains(pattern, ignoreCase = true)) {
-                return UrlValidation(false, "Local/private addresses blocked")
+        // SECURITY: Block private IP ranges
+        val privatePatterns = listOf(
+            Regex("^192\\.168\\..*"),
+            Regex("^10\\..*"),
+            Regex("^172\\.(1[6-9]|2[0-9]|3[0-1])\\..*"),
+            Regex("^169\\.254\\..*"), // Link-local
+            Regex("^\\[fc.*"), // IPv6 private
+            Regex("^\\[fd.*")  // IPv6 private
+        )
+        for (pattern in privatePatterns) {
+            if (pattern.matches(host)) {
+                return UrlValidation(false, "Private/local addresses blocked")
             }
         }
         
-        // Check if domain is allowed for this store
-        val domain = extractDomain(trimmed)
+        // SECURITY: Check if normalized hostname is in allowed list
         val isAllowed = config.allowedDomains.any { allowed ->
-            domain.equals(allowed, ignoreCase = true) ||
-            domain.endsWith(".$allowed", ignoreCase = true)
+            val normalizedAllowed = allowed.lowercase()
+            host == normalizedAllowed || 
+            host.endsWith(".$normalizedAllowed")
         }
         
         if (!isAllowed) {
-            return UrlValidation(false, "Domain not allowed for ${config.store.displayName}")
+            return UrlValidation(false, "Domain not allowed for ${config.store.displayName}: $host")
         }
         
         return UrlValidation(true)
@@ -444,8 +502,7 @@ class SecureBrowserWrapper(
      */
     private fun extractDomain(url: String): String {
         return try {
-            val withoutProtocol = url.substringAfter("://")
-            withoutProtocol.substringBefore("/").substringBefore("?").substringBefore(":")
+            android.net.Uri.parse(url).host ?: "unknown"
         } catch (e: Exception) {
             "unknown"
         }

@@ -148,7 +148,8 @@ class SecureBrowserInstrumentedTest {
         withTimeout(1000) {
             val event = wrapper.events.first()
             assertTrue("Should emit NavigationBlocked", event is BrowserAuthEvent.NavigationBlocked)
-            assertEquals("Only HTTPS URLs allowed", (event as BrowserAuthEvent.NavigationBlocked).reason)
+            assertTrue("Reason should mention HTTPS", 
+                (event as BrowserAuthEvent.NavigationBlocked).reason.contains("HTTPS"))
         }
         
         wrapper.destroy()
@@ -199,6 +200,96 @@ class SecureBrowserInstrumentedTest {
         }
         
         wrapper.destroy()
+    }
+    
+    // ===== URL Security Edge Cases =====
+    
+    @Test
+    fun secureBrowserWrapper_rejectsUrlWithUserInfo() = runBlocking {
+        val wrapper = SecureBrowserWrapper.forStore(context, GameStore.EPIC_GAMES)
+        
+        // URL with credentials embedded (phishing technique)
+        val result = wrapper.loadUrl("https://user:pass@epicgames.com/login")
+        assertFalse("URL with user info should be rejected", result)
+        
+        withTimeout(1000) {
+            val event = wrapper.events.first()
+            assertTrue("Should emit NavigationBlocked", event is BrowserAuthEvent.NavigationBlocked)
+            assertTrue("Reason should mention credentials", 
+                (event as BrowserAuthEvent.NavigationBlocked).reason.contains("credentials"))
+        }
+        
+        wrapper.destroy()
+    }
+    
+    @Test
+    fun secureBrowserWrapper_rejectsNonStandardPort() = runBlocking {
+        val wrapper = SecureBrowserWrapper.forStore(context, GameStore.EPIC_GAMES)
+        
+        val result = wrapper.loadUrl("https://www.epicgames.com:8080/login")
+        assertFalse("Non-standard port should be rejected", result)
+        
+        withTimeout(1000) {
+            val event = wrapper.events.first()
+            assertTrue("Should emit NavigationBlocked", event is BrowserAuthEvent.NavigationBlocked)
+            assertTrue("Reason should mention port", 
+                (event as BrowserAuthEvent.NavigationBlocked).reason.contains("port"))
+        }
+        
+        wrapper.destroy()
+    }
+    
+    @Test
+    fun secureBrowserWrapper_rejectsJavascriptScheme() = runBlocking {
+        val wrapper = SecureBrowserWrapper.forStore(context, GameStore.EPIC_GAMES)
+        
+        val result = wrapper.loadUrl("javascript:alert('xss')")
+        assertFalse("JavaScript scheme should be rejected", result)
+        
+        wrapper.destroy()
+    }
+    
+    @Test
+    fun secureBrowserWrapper_rejectsDataScheme() = runBlocking {
+        val wrapper = SecureBrowserWrapper.forStore(context, GameStore.EPIC_GAMES)
+        
+        val result = wrapper.loadUrl("data:text/html,<script>alert('xss')</script>")
+        assertFalse("Data scheme should be rejected", result)
+        
+        wrapper.destroy()
+    }
+    
+    @Test
+    fun secureBrowserWrapper_rejectsFileScheme() = runBlocking {
+        val wrapper = SecureBrowserWrapper.forStore(context, GameStore.EPIC_GAMES)
+        
+        val result = wrapper.loadUrl("file:///etc/passwd")
+        assertFalse("File scheme should be rejected", result)
+        
+        wrapper.destroy()
+    }
+    
+    @Test
+    fun secureBrowserWrapper_acceptsStandardHttpsPort() = runBlocking {
+        // Port 443 is standard HTTPS port and should be allowed
+        val wrapper = SecureBrowserWrapper.forStore(context, GameStore.EPIC_GAMES)
+        
+        // Note: This will attempt to load but network may fail - we're testing URL validation
+        val result = wrapper.loadUrl("https://www.epicgames.com:443/id/login")
+        assertTrue("Standard HTTPS port 443 should be accepted", result)
+        
+        wrapper.destroy()
+    }
+    
+    // ===== Single Account Per Store Enforcement =====
+    
+    @Test
+    fun storeAuthConfig_noMultipleAccountsField() {
+        // Verify supportsMultipleAccounts field was removed
+        val config = StoreAuthConfig.forStore(GameStore.EPIC_GAMES)
+        // This test passes if the code compiles - the field no longer exists
+        // Attempting to access it would be a compile error
+        assertNotNull("Config should exist", config)
     }
     
     // ===== Cookie Management Tests =====

@@ -46,10 +46,23 @@ data class SettingsEntity(
 /**
  * Room entity for store authentication state.
  * 
- * SECURITY CRITICAL: This contains session data.
- * - sessionToken is encrypted via EncryptedSharedPreferences (Phase 5+)
- * - MUST be excluded from exports
- * - Marked with isSecret=true for export filtering
+ * SECURITY ARCHITECTURE (Phase 5):
+ * This entity stores METADATA about authentication state only:
+ * - Whether user is authenticated (boolean)
+ * - Display name for UI
+ * - Last verification timestamp
+ * 
+ * WHAT IS NOT STORED HERE:
+ * - No session tokens
+ * - No cookies (managed by Android CookieManager)
+ * - No credentials
+ * 
+ * WebView cookies are stored by Android's system CookieManager in a
+ * WebView-specific database. This is SEPARATE from this Room table.
+ * 
+ * EXPORT: This table is EXCLUDED from exports (isSecret=true).
+ * Even though we don't store actual tokens, authentication metadata
+ * should not be portable between devices.
  */
 @Entity(
     tableName = "store_sessions",
@@ -62,10 +75,7 @@ data class StoreSessionEntity(
     val displayName: String?,
     val lastVerified: Long,
     val isAuthenticated: Boolean,
-    // Security: This field is encrypted and MUST NOT be exported
-    // In Phase 5+, this will use Android Keystore
-    val sessionTokenEncrypted: String? = null,
-    // Flag for export filtering
+    // Flag for export filtering - always true for this table
     val isSecret: Boolean = true
 )
 

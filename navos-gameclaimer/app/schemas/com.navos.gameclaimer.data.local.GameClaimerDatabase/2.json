@@ -1,8 +1,8 @@
 {
   "formatVersion": 1,
   "database": {
-    "version": 1,
-    "identityHash": "ed4cfd795fca8fb5e59e55ac47141c48",
+    "version": 2,
+    "identityHash": "240c784e5d5723ec027be8529a46dfac",
     "entities": [
       {
         "tableName": "claimed_games",
@@ -114,7 +114,7 @@
       },
       {
         "tableName": "store_sessions",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `store` TEXT NOT NULL, `displayName` TEXT, `lastVerified` INTEGER NOT NULL, `isAuthenticated` INTEGER NOT NULL, `sessionTokenEncrypted` TEXT, `isSecret` INTEGER NOT NULL)",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `store` TEXT NOT NULL, `displayName` TEXT, `lastVerified` INTEGER NOT NULL, `isAuthenticated` INTEGER NOT NULL, `isSecret` INTEGER NOT NULL)",
         "fields": [
           {
             "fieldPath": "id",
@@ -145,12 +145,6 @@
             "columnName": "isAuthenticated",
             "affinity": "INTEGER",
             "notNull": true
-          },
-          {
-            "fieldPath": "sessionTokenEncrypted",
-            "columnName": "sessionTokenEncrypted",
-            "affinity": "TEXT",
-            "notNull": false
           },
           {
             "fieldPath": "isSecret",
@@ -276,7 +270,7 @@
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'ed4cfd795fca8fb5e59e55ac47141c48')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '240c784e5d5723ec027be8529a46dfac')"
     ]
   }
 }
