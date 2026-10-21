@@ -34,9 +34,10 @@ import com.navos.gameclaimer.data.local.entity.*
         SettingsEntity::class,
         StoreSessionEntity::class,
         AvailableGameEntity::class,
-        GiveawayEntity::class
+        GiveawayEntity::class,
+        ClaimQueueEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 abstract class GameClaimerDatabase : RoomDatabase() {
@@ -46,6 +47,7 @@ abstract class GameClaimerDatabase : RoomDatabase() {
     abstract fun storeSessionDao(): StoreSessionDao
     abstract fun availableGameDao(): AvailableGameDao
     abstract fun giveawayDao(): GiveawayDao
+    abstract fun claimQueueDao(): ClaimQueueDao
     
     companion object {
         private const val DATABASE_NAME = "gameclaimer.db"
@@ -139,6 +141,42 @@ abstract class GameClaimerDatabase : RoomDatabase() {
         }
         
         /**
+         * Migration from version 3 to 4:
+         * - Add claim_queue table for Phase 13 automation engine
+         * 
+         * SECURITY:
+         * - No sensitive data stored (no cookies, tokens, credentials)
+         * - Only stores IDs, state, timestamps, and sanitized outcome metadata
+         */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS claim_queue (
+                        queueId TEXT PRIMARY KEY NOT NULL,
+                        giveawayId TEXT NOT NULL,
+                        store TEXT NOT NULL,
+                        state TEXT NOT NULL,
+                        enqueuedAt INTEGER NOT NULL,
+                        scheduledAt INTEGER NOT NULL,
+                        attemptCount INTEGER NOT NULL,
+                        maxAttempts INTEGER NOT NULL,
+                        lastOutcomeType TEXT,
+                        lastOutcomeJson TEXT,
+                        lastAttemptAt INTEGER,
+                        priority INTEGER NOT NULL,
+                        isUserInitiated INTEGER NOT NULL,
+                        version INTEGER NOT NULL DEFAULT 1
+                    )
+                """)
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_claim_queue_giveawayId ON claim_queue (giveawayId)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_claim_queue_state ON claim_queue (state)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_claim_queue_scheduledAt ON claim_queue (scheduledAt)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_claim_queue_store ON claim_queue (store)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_claim_queue_state_scheduledAt ON claim_queue (state, scheduledAt)")
+            }
+        }
+        
+        /**
          * All database migrations.
          * 
          * MIGRATION STRATEGY:
@@ -149,7 +187,8 @@ abstract class GameClaimerDatabase : RoomDatabase() {
          */
         val ALL_MIGRATIONS: Array<Migration> = arrayOf(
             MIGRATION_1_2,
-            MIGRATION_2_3
+            MIGRATION_2_3,
+            MIGRATION_3_4
         )
     }
 }
