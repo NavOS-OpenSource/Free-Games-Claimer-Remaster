@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 4,
-    "identityHash": "3e634c3b030835fc4cbd8559695287fb",
+    "identityHash": "016369f5b00b1d357e67a5b5a58841e2",
     "entities": [
       {
         "tableName": "claimed_games",
@@ -422,7 +422,7 @@
       },
       {
         "tableName": "claim_queue",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`queueId` TEXT NOT NULL, `giveawayId` TEXT NOT NULL, `store` TEXT NOT NULL, `state` TEXT NOT NULL, `enqueuedAt` INTEGER NOT NULL, `scheduledAt` INTEGER NOT NULL, `attemptCount` INTEGER NOT NULL, `maxAttempts` INTEGER NOT NULL, `lastOutcomeType` TEXT, `lastOutcomeJson` TEXT, `lastAttemptAt` INTEGER, `priority` INTEGER NOT NULL, `isUserInitiated` INTEGER NOT NULL, `version` INTEGER NOT NULL, PRIMARY KEY(`queueId`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`queueId` TEXT NOT NULL, `giveawayId` TEXT NOT NULL, `store` TEXT NOT NULL, `state` TEXT NOT NULL, `enqueuedAt` INTEGER NOT NULL, `scheduledAt` INTEGER NOT NULL, `attemptCount` INTEGER NOT NULL, `maxAttempts` INTEGER NOT NULL, `lastOutcomeType` TEXT, `lastOutcomeJson` TEXT, `lastAttemptAt` INTEGER, `priority` INTEGER NOT NULL, `isUserInitiated` INTEGER NOT NULL, `version` INTEGER NOT NULL, `gameTitle` TEXT NOT NULL, `storeName` TEXT NOT NULL, PRIMARY KEY(`queueId`))",
         "fields": [
           {
             "fieldPath": "queueId",
@@ -507,6 +507,18 @@
             "columnName": "version",
             "affinity": "INTEGER",
             "notNull": true
+          },
+          {
+            "fieldPath": "gameTitle",
+            "columnName": "gameTitle",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "storeName",
+            "columnName": "storeName",
+            "affinity": "TEXT",
+            "notNull": true
           }
         ],
         "primaryKey": {
@@ -569,7 +581,7 @@
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '3e634c3b030835fc4cbd8559695287fb')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '016369f5b00b1d357e67a5b5a58841e2')"
     ]
   }
 }

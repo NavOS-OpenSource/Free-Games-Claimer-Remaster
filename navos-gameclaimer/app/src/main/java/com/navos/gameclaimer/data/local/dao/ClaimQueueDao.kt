@@ -146,10 +146,25 @@ abstract class ClaimQueueDao {
     abstract fun getAllItems(): Flow<List<ClaimQueueEntity>>
     
     /**
+     * Phase 14: Get recent activity for the Activity screen.
+     * Returns items ordered by most recent activity, limited.
+     * Uses COALESCE to handle null lastAttemptAt (uses enqueuedAt as fallback).
+     */
+    @Query("SELECT * FROM claim_queue ORDER BY COALESCE(lastAttemptAt, enqueuedAt) DESC LIMIT :limit")
+    abstract fun getRecentActivity(limit: Int = 50): Flow<List<ClaimQueueEntity>>
+    
+    /**
      * Get items requiring user action.
      */
     @Query("SELECT * FROM claim_queue WHERE state = 'BLOCKED_USER_ACTION' ORDER BY enqueuedAt DESC")
     abstract fun getItemsNeedingUserAction(): Flow<List<ClaimQueueEntity>>
+    
+    /**
+     * Phase 14: Get items in UNCERTAIN state for Needs Attention screen.
+     * These require user verification of ownership.
+     */
+    @Query("SELECT * FROM claim_queue WHERE state = 'UNCERTAIN' ORDER BY lastAttemptAt DESC")
+    abstract fun getUncertainItems(): Flow<List<ClaimQueueEntity>>
     
     /**
      * Get items currently in progress.
@@ -254,12 +269,6 @@ abstract class ClaimQueueDao {
         WHERE state = 'IN_PROGRESS'
     """)
     abstract suspend fun recoverInterruptedItems(): Int
-    
-    /**
-     * Get items in UNCERTAIN state requiring user verification.
-     */
-    @Query("SELECT * FROM claim_queue WHERE state = 'UNCERTAIN' ORDER BY enqueuedAt DESC")
-    abstract fun getUncertainItems(): Flow<List<ClaimQueueEntity>>
     
     /**
      * Count UNCERTAIN items requiring verification.

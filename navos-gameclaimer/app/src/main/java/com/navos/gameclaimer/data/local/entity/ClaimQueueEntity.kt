@@ -73,7 +73,14 @@ data class ClaimQueueEntity(
     val isUserInitiated: Boolean,
     
     /** Version for optimistic locking */
-    val version: Int = 1
+    val version: Int = 1,
+    
+    // Phase 14: Denormalized display fields for Activity screen
+    /** Game title for display (denormalized from giveaway) */
+    val gameTitle: String = "",
+    
+    /** Store display name for UI */
+    val storeName: String = ""
 ) {
     /**
      * Convert to domain model.
