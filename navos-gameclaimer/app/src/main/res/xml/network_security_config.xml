@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Network Security Configuration
+     Enforces HTTPS-only communication for all network traffic.
+     
+     Security: No cleartext traffic allowed.
+     Future: May add certificate pinning for store APIs.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
