@@ -16,6 +16,7 @@ import com.navos.gameclaimer.data.local.entity.*
  * - Version 1: Initial schema with claimed_games, settings, store_sessions, available_games
  * - Version 2: Remove unused sessionTokenEncrypted column from store_sessions
  *              (Phase 5 hardening - we don't store tokens, only metadata)
+ * - Version 3: Add giveaways table for Phase 6 discovery pipeline
  * 
  * SECURITY NOTES:
  * - Database file is stored in app-private storage
@@ -32,9 +33,10 @@ import com.navos.gameclaimer.data.local.entity.*
         ClaimedGameEntity::class,
         SettingsEntity::class,
         StoreSessionEntity::class,
-        AvailableGameEntity::class
+        AvailableGameEntity::class,
+        GiveawayEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 abstract class GameClaimerDatabase : RoomDatabase() {
@@ -43,6 +45,7 @@ abstract class GameClaimerDatabase : RoomDatabase() {
     abstract fun settingsDao(): SettingsDao
     abstract fun storeSessionDao(): StoreSessionDao
     abstract fun availableGameDao(): AvailableGameDao
+    abstract fun giveawayDao(): GiveawayDao
     
     companion object {
         private const val DATABASE_NAME = "gameclaimer.db"
@@ -102,6 +105,40 @@ abstract class GameClaimerDatabase : RoomDatabase() {
         }
         
         /**
+         * Migration from version 2 to 3:
+         * - Add giveaways table for Phase 6 discovery pipeline
+         */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS giveaways (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        title TEXT NOT NULL,
+                        store TEXT NOT NULL,
+                        type TEXT NOT NULL,
+                        claimUrl TEXT NOT NULL,
+                        originalPrice TEXT,
+                        imageUrl TEXT,
+                        description TEXT,
+                        startTime INTEGER,
+                        endTime INTEGER,
+                        source TEXT NOT NULL,
+                        externalId TEXT,
+                        discoveredAt INTEGER NOT NULL,
+                        lastCheckedAt INTEGER NOT NULL,
+                        isDismissed INTEGER NOT NULL DEFAULT 0,
+                        isClaimed INTEGER NOT NULL DEFAULT 0,
+                        claimedAt INTEGER
+                    )
+                """)
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_giveaways_store ON giveaways (store)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_giveaways_source ON giveaways (source)")
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_giveaways_externalId_source ON giveaways (externalId, source)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_giveaways_endTime ON giveaways (endTime)")
+            }
+        }
+        
+        /**
          * All database migrations.
          * 
          * MIGRATION STRATEGY:
@@ -111,7 +148,8 @@ abstract class GameClaimerDatabase : RoomDatabase() {
          * 4. Test migrations with synthetic data before release
          */
         val ALL_MIGRATIONS: Array<Migration> = arrayOf(
-            MIGRATION_1_2
+            MIGRATION_1_2,
+            MIGRATION_2_3
         )
     }
 }
