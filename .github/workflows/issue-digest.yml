@@ -91,11 +91,11 @@ jobs:
         continue-on-error: true
         # Pinned to a commit because this step holds the Claude token.
         uses: anthropics/claude-code-action@a5a423f75c251dcbff8a74e99f83b2cb03c72bfa # v1.0.256
-        env:
+        env: &label_env
           CLAUDE_CODE_SCRIPT_CAPS: ${{ steps.pick.outputs.caps }}
           # Strips the Claude and runner credentials from every command the agent runs.
           CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
-        with:
+        with: &label_with
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
           # A Dependabot bump of this file may make it the schedule's actor; it cannot start a run any other way.
@@ -121,11 +121,24 @@ jobs:
 
             Do not comment, close, reopen or edit anything else. Finish with one line per issue saying what you changed.
 
+      - name: Wait before labelling again
+        if: steps.label.outcome == 'failure'
+        # claude.ai sometimes answers the runner's Claude Code download with 429, and the action gives up after 15 seconds.
+        run: sleep 120
+
+      - name: Label issues with Claude, second try
+        id: label_retry
+        if: steps.label.outcome == 'failure'
+        continue-on-error: true
+        uses: anthropics/claude-code-action@a5a423f75c251dcbff8a74e99f83b2cb03c72bfa # v1.0.256
+        env: *label_env
+        with: *label_with
+
       - name: Send the digest to Discord
         if: always() && (github.event_name == 'schedule' || inputs.digest)
         env:
           SINCE: ${{ steps.window.outputs.since }}
-          LABEL_OUTCOME: ${{ steps.label.outcome }}
+          LABEL_OUTCOME: ${{ steps.label.outcome == 'failure' && steps.label_retry.outcome || steps.label.outcome }}
           LABEL_ISSUES: ${{ steps.pick.outputs.issues }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
