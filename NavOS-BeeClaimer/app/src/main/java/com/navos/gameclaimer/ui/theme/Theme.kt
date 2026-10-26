@@ -416,6 +416,7 @@ class ThemePreferences(context: Context) {
         private const val KEY_THEME = "selected_theme"
         private const val KEY_MODE = "theme_mode"
         private const val KEY_CORNER_RADIUS = "corner_radius"
+        private const val KEY_DEVELOPER_OPTIONS = "developer_options_enabled"
     }
     
     var selectedTheme: AppTheme
@@ -429,6 +430,10 @@ class ThemePreferences(context: Context) {
     var cornerRadius: Float
         get() = prefs.getFloat(KEY_CORNER_RADIUS, 4f)  // Default to slightly boxy
         set(value) = prefs.edit().putFloat(KEY_CORNER_RADIUS, value).apply()
+    
+    var developerOptionsEnabled: Boolean
+        get() = prefs.getBoolean(KEY_DEVELOPER_OPTIONS, false)
+        set(value) = prefs.edit().putBoolean(KEY_DEVELOPER_OPTIONS, value).apply()
 }
 
 // ============================================================================

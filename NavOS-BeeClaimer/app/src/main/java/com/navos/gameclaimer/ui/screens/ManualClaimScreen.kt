@@ -1,6 +1,8 @@
 package com.navos.gameclaimer.ui.screens
 
 import android.annotation.SuppressLint
+import android.content.Intent
+import android.net.Uri
 import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -171,6 +173,32 @@ fun ManualClaimScreen(
                             cookieManager.setAcceptThirdPartyCookies(this, true)
                             
                             webViewClient = object : WebViewClient() {
+                                @Deprecated("Deprecated in Java")
+                                override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                                    // Intercept steam:// URLs and open via Intent
+                                    if (url != null && url.startsWith("steam://")) {
+                                        try {
+                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            ctx.startActivity(intent)
+                                            // Signal success via a post to main thread
+                                            view?.post {
+                                                validationState = ClaimValidationState.F2PAdded
+                                                isClaiming = false
+                                            }
+                                            return true
+                                        } catch (e: Exception) {
+                                            // Steam app not installed
+                                            view?.post {
+                                                validationState = ClaimValidationState.Invalid("Steam app not installed")
+                                                isClaiming = false
+                                            }
+                                            return true
+                                        }
+                                    }
+                                    return false
+                                }
+                                
                                 override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                                     url?.let { currentUrl = it }
                                     isPageLoading = true
@@ -244,10 +272,57 @@ fun ManualClaimScreen(
                                 // Navigate to the game page
                                 webView?.loadUrl(parsedUrl)
                                 
-                                // Wait for page load
-                                delay(3000)
+                                // Wait for page to actually load (not just fixed delay)
+                                var waitCount = 0
+                                while (isPageLoading && waitCount < 30) {
+                                    delay(200)
+                                    waitCount++
+                                }
+                                // Extra delay for React/JS content to render
+                                delay(1500)
                             
-                            // Check page state using JS
+                            // Check page state using JS - with retry for title
+                            var finalPageTitle = "Unknown Game"
+                            
+                            // First try to get page title from DOM
+                            webView?.evaluateJavascript("""
+                                (function() {
+                                    var el = document.querySelector('#appHubAppName, .apphub_AppName');
+                                    return el ? el.innerText.trim() : null;
+                                })();
+                            """.trimIndent()) { titleResult ->
+                                val title = titleResult?.trim('"')
+                                if (title != null && title != "null" && title.isNotBlank()) {
+                                    finalPageTitle = title
+                                }
+                            }
+                            
+                            // Small delay for title fetch
+                            delay(300)
+                            
+                            // Fallback: If title still unknown, try Steam API
+                            val appId = extractAppId(parsedUrl)
+                            if (finalPageTitle == "Unknown Game" && appId != null) {
+                                try {
+                                    val apiUrl = "https://store.steampowered.com/api/appdetails?appids=$appId&l=english"
+                                    val connection = java.net.URL(apiUrl).openConnection() as java.net.HttpURLConnection
+                                    connection.connectTimeout = 3000
+                                    connection.readTimeout = 3000
+                                    val apiResponse = connection.inputStream.bufferedReader().readText()
+                                    val apiJson = JSONObject(apiResponse)
+                                    val appData = apiJson.optJSONObject(appId)
+                                    if (appData?.optBoolean("success") == true) {
+                                        val data = appData.optJSONObject("data")
+                                        val apiName = data?.optString("name")
+                                        if (!apiName.isNullOrBlank()) {
+                                            finalPageTitle = apiName
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    android.util.Log.w("ManualClaim", "API title fetch failed: ${e.message}")
+                                }
+                            }
+                            
                             webView?.evaluateJavascript(SteamStoreAdapter.JS_DETECT_OWNERSHIP) { result ->
                                 scope.launch {
                                     try {
@@ -271,9 +346,9 @@ fun ManualClaimScreen(
                                             }
                                         }
                                         
-                                        val pageTitle = if (json.isNull("pageTitle")) "Unknown Game" 
-                                            else json.optString("pageTitle", "Unknown Game").let { 
-                                                if (it == "null" || it.isBlank()) "Unknown Game" else it 
+                                        val pageTitle = if (json.isNull("pageTitle")) finalPageTitle 
+                                            else json.optString("pageTitle", finalPageTitle).let { 
+                                                if (it == "null" || it.isBlank()) finalPageTitle else it 
                                             }
                                         val owned = json.optBoolean("owned", false)
                                         val notOwned = json.optBoolean("notOwned", false)
@@ -336,10 +411,21 @@ fun ManualClaimScreen(
                                         if (cleaned != null && cleaned != "null") {
                                             val json = JSONObject(cleaned)
                                             val success = json.optBoolean("success", false)
+                                            val method = json.optString("method", "")
+                                            
+                                            // Handle need_steam_app - F2P game needs Steam app to add
+                                            if (!success && method == "need_steam_app") {
+                                                val steamUrl = json.optString("steamUrl", "")
+                                                val gameTitle = json.optString("gameTitle", gameInfo?.title ?: "Game")
+                                                if (steamUrl.isNotEmpty()) {
+                                                    validationState = ClaimValidationState.RequiresSteamApp(steamUrl, gameTitle)
+                                                }
+                                                isClaiming = false
+                                                return@launch
+                                            }
                                             
                                             if (success) {
-                                                // For F2P, the button opens Steam client
-                                                // Show success message (can't verify from WebView)
+                                                // For F2P, AddFreeLicense worked directly via web
                                                 if (validationState is ClaimValidationState.IsFreeToPlay) {
                                                     validationState = ClaimValidationState.F2PAdded
                                                     isClaiming = false
@@ -684,14 +770,80 @@ private fun ValidationResultDisplay(
             }
         }
         is ClaimValidationState.F2PAdded -> {
-            // Success state for F2P games - Steam should have opened
+            // Success state for F2P games - added to library via AddFreeLicense
             ResultCard(
-                Icons.Default.OpenInNew, 
+                Icons.Default.CheckCircle, 
                 gameInfo?.title ?: "Game", 
-                "✓ Steam opened! Complete install in Steam app", 
+                "Added to your Steam Library!", 
                 Color(0xFFE8F5E9), 
                 Color(0xFF2E7D32)
             )
+        }
+        is ClaimValidationState.RequiresSteamApp -> {
+            // F2P game needs Steam app to add to library
+            val context = LocalContext.current
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.SportsEsports,
+                            null,
+                            tint = Color(0xFF1565C0),
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                state.gameTitle,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF1565C0)
+                            )
+                            Text(
+                                "Free-to-Play - Requires Steam app",
+                                fontSize = 13.sp,
+                                color = Color(0xFF1565C0).copy(alpha = 0.8f)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "F2P games can only be added via the Steam app. Click the button below to open Steam.",
+                        fontSize = 13.sp,
+                        color = Color(0xFF1565C0).copy(alpha = 0.7f)
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = {
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(state.steamUrl))
+                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                // Steam app not installed - open Play Store
+                                try {
+                                    val playStoreIntent = Intent(Intent.ACTION_VIEW, 
+                                        Uri.parse("market://details?id=com.valvesoftware.android.steam.community"))
+                                    context.startActivity(playStoreIntent)
+                                } catch (e2: Exception) {
+                                    // Play Store not available - open web
+                                    val webIntent = Intent(Intent.ACTION_VIEW,
+                                        Uri.parse("https://play.google.com/store/apps/details?id=com.valvesoftware.android.steam.community"))
+                                    context.startActivity(webIntent)
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0))
+                    ) {
+                        Icon(Icons.Default.OpenInNew, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Open in Steam App")
+                    }
+                }
+            }
         }
         is ClaimValidationState.RequiresBaseGame -> {
             ResultCard(Icons.Default.Extension, gameInfo?.title ?: "DLC", 
@@ -832,6 +984,7 @@ private sealed class ClaimValidationState {
     object IsDemo : ClaimValidationState()
     object IsFreeToPlay : ClaimValidationState()
     object F2PAdded : ClaimValidationState()  // Successfully triggered Steam for F2P game
+    data class RequiresSteamApp(val steamUrl: String, val gameTitle: String) : ClaimValidationState()  // F2P needs Steam app
     object RequiresBaseGame : ClaimValidationState()
     data class NotClaimable(val reason: String, val price: String?) : ClaimValidationState()
     data class Claimable(val action: String, val isFree: Boolean) : ClaimValidationState()

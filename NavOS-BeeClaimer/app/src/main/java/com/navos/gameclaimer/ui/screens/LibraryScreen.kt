@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.CollectionsBookmark
@@ -41,9 +42,13 @@ import com.navos.gameclaimer.data.remote.SteamLibraryApi
 import com.navos.gameclaimer.domain.model.GameStore
 import com.navos.gameclaimer.ui.theme.BrutalistDesign
 import com.navos.gameclaimer.ui.theme.LocalThemeState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 
 private const val TAG = "LibraryScreen"
 
@@ -89,10 +94,15 @@ fun LibraryScreen(
     var libraryGames by remember { mutableStateOf<List<SteamGame>>(emptyList()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var searchQuery by remember { mutableStateOf("") }
-    var sortBy by remember { mutableStateOf("Play Time") }
+    var sortBy by remember { mutableStateOf("Alphabetical") }
     var showSortMenu by remember { mutableStateOf(false) }
     var isSteamConnected by remember { mutableStateOf(false) }
-    var playtimeFilter by remember { mutableStateOf("All") } // All, Never Played, <1h, 1-10h, 10-100h, 100h+
+    var playtimeFilter by remember { mutableStateOf("All") }
+    
+    // UI toggles
+    var showSearch by remember { mutableStateOf(false) }
+    var showFilters by remember { mutableStateOf(false) }
+    var selectedGame by remember { mutableStateOf<SteamGame?>(null) }
     
     // WebView for fetching (hidden)
     var webView by remember { mutableStateOf<WebView?>(null) }
@@ -123,8 +133,8 @@ fun LibraryScreen(
         }
         
         when (sortBy) {
-            "Play Time" -> filtered.sortedByDescending { it.playtimeHours }
             "Alphabetical" -> filtered.sortedBy { it.name.lowercase() }
+            "Recent" -> filtered.sortedByDescending { it.appId }
             else -> filtered
         }
     }
@@ -142,6 +152,12 @@ fun LibraryScreen(
                 },
                 actions = {
                     if (isSteamConnected && !isLoading) {
+                        IconButton(onClick = { showSearch = !showSearch }) {
+                            Icon(Icons.Default.Search, contentDescription = "Search")
+                        }
+                        IconButton(onClick = { showFilters = !showFilters }) {
+                            Icon(Icons.Default.FilterList, contentDescription = "Filter")
+                        }
                         IconButton(
                             onClick = {
                                 shouldFetch = true
@@ -192,9 +208,46 @@ fun LibraryScreen(
                                                 isLoading = false
                                                 isRefreshing = false
                                             }
-                                            "games" -> {
-                                                // Extract games
+                                            "userdata" -> {
+                                                // New: Extract from userdata JSON endpoint
                                                 evaluateJavascript(SteamLibraryApi.JS_EXTRACT_GAMES) { result ->
+                                                    shouldFetch = false
+                                                    Log.d(TAG, "Userdata result: ${result.take(500)}")
+                                                    parseGamesResult(result)?.let { games ->
+                                                        Log.d(TAG, "Parsed ${games.size} games from userdata")
+                                                        // Show games immediately with placeholder names
+                                                        libraryGames = games
+                                                        errorMessage = null
+                                                        isLoading = false
+                                                        isRefreshing = false
+                                                        
+                                                        // Enrich game names in background with progressive updates
+                                                        scope.launch {
+                                                            try {
+                                                                enrichGameNames(games) { progressGames ->
+                                                                    libraryGames = progressGames
+                                                                }
+                                                                Log.d(TAG, "Enriched all games with names")
+                                                            } catch (e: Exception) {
+                                                                Log.e(TAG, "Enrichment failed", e)
+                                                                // Keep original games with placeholder names
+                                                            }
+                                                        }
+                                                    } ?: run {
+                                                        // Check if error is not_logged_in
+                                                        if (result.contains("not_logged_in")) {
+                                                            errorMessage = "Session expired. Please log in to Steam again."
+                                                        } else {
+                                                            errorMessage = "Failed to parse games list"
+                                                        }
+                                                        isLoading = false
+                                                        isRefreshing = false
+                                                    }
+                                                }
+                                            }
+                                            "games" -> {
+                                                // Legacy: Community games page (if redirected)
+                                                evaluateJavascript(SteamLibraryApi.JS_EXTRACT_COMMUNITY_GAMES) { result ->
                                                     shouldFetch = false
                                                     parseGamesResult(result)?.let { games ->
                                                         libraryGames = games
@@ -213,18 +266,24 @@ fun LibraryScreen(
                                                 isRefreshing = false
                                             }
                                             else -> {
-                                                // Wait a bit and retry
+                                                // For userdata endpoint, try extracting directly
                                                 view?.postDelayed({
                                                     view.evaluateJavascript(SteamLibraryApi.JS_EXTRACT_GAMES) { result ->
                                                         shouldFetch = false
+                                                        Log.d(TAG, "Fallback result: ${result.take(500)}")
                                                         parseGamesResult(result)?.let { games ->
                                                             libraryGames = games
+                                                            scope.launch {
+                                                                enrichGameNames(games) { progressGames ->
+                                                                    libraryGames = progressGames
+                                                                }
+                                                            }
                                                             errorMessage = null
                                                         }
                                                         isLoading = false
                                                         isRefreshing = false
                                                     }
-                                                }, 1000)
+                                                }, 500)
                                             }
                                         }
                                     }
@@ -267,83 +326,80 @@ fun LibraryScreen(
                 }
                 else -> {
                     Column(Modifier.fillMaxSize().padding(horizontal = BrutalistDesign.SpacingMedium.dp)) {
-                        // Search
-                        OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            placeholder = { Text("Search ${libraryGames.size} games...") },
-                            trailingIcon = { Icon(Icons.Default.Search, null) },
-                            singleLine = true
-                        )
-                        
-                        Spacer(Modifier.height(12.dp))
-                        
-                        // Playtime filter chips
-                        val playtimeFilters = listOf("All", "Never Played", "<1h", "1-10h", "10-100h", "100h+")
-                        Row(
-                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            playtimeFilters.forEach { filter ->
-                                FilterChip(
-                                    selected = playtimeFilter == filter,
-                                    onClick = { playtimeFilter = filter },
-                                    label = { Text(filter, style = MaterialTheme.typography.labelSmall) }
-                                )
-                            }
+                        // Search bar - only show when toggled
+                        if (showSearch) {
+                            OutlinedTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                placeholder = { Text("Search ${libraryGames.size} games...") },
+                                trailingIcon = { Icon(Icons.Default.Search, null) },
+                                singleLine = true
+                            )
+                            Spacer(Modifier.height(8.dp))
                         }
                         
-                        Spacer(Modifier.height(12.dp))
-                        
-                        // Sort
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text("SORT:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Spacer(Modifier.width(8.dp))
-                            Box {
-                                OutlinedButton(onClick = { showSortMenu = true }) {
-                                    Text(sortBy)
-                                    Text(" ▼", style = MaterialTheme.typography.bodySmall)
+                        // Filters - only show when toggled
+                        if (showFilters) {
+                            val playtimeFilters = listOf("All", "Never Played", "<1h", "1-10h", "10-100h", "100h+")
+                            Row(
+                                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                playtimeFilters.forEach { filter ->
+                                    FilterChip(
+                                        selected = playtimeFilter == filter,
+                                        onClick = { playtimeFilter = filter },
+                                        label = { Text(filter, style = MaterialTheme.typography.labelSmall) }
+                                    )
                                 }
-                                DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
-                                    listOf("Play Time", "Alphabetical").forEach { opt ->
-                                        DropdownMenuItem(
-                                            text = { Text(opt) },
-                                            onClick = { sortBy = opt; showSortMenu = false }
-                                        )
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            
+                            // Sort
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text("SORT:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(Modifier.width(8.dp))
+                                Box {
+                                    OutlinedButton(onClick = { showSortMenu = true }) {
+                                        Text(sortBy)
+                                        Text(" ▼", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
+                                        listOf("Alphabetical", "Recent").forEach { opt ->
+                                            DropdownMenuItem(
+                                                text = { Text(opt) },
+                                                onClick = { sortBy = opt; showSortMenu = false }
+                                            )
+                                        }
                                     }
                                 }
+                                Spacer(Modifier.weight(1f))
+                                Text("${displayedGames.size} games", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            Spacer(Modifier.weight(1f))
-                            if (isRefreshing) {
-                                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                            } else {
-                                val hasFilters = searchQuery.isNotBlank() || playtimeFilter != "All"
-                                val countText = if (hasFilters && displayedGames.size != libraryGames.size) {
-                                    "${displayedGames.size} of ${libraryGames.size} games"
-                                } else {
-                                    "${displayedGames.size} games"
-                                }
-                                Text(countText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
+                            Spacer(Modifier.height(8.dp))
                         }
                         
-                        Spacer(Modifier.height(16.dp))
-                        
+                        // Games grid
                         if (displayedGames.isEmpty()) {
                             if (searchQuery.isNotBlank()) NoSearchResultsContent()
                             else LibraryEmptyState()
                         } else {
                             LazyVerticalGrid(
                                 columns = GridCells.Fixed(3),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 items(displayedGames, key = { it.appId }) { game ->
-                                    SteamGameCard(game = game, onClick = {})
+                                    SteamGameCard(game = game, onClick = { selectedGame = game })
                                 }
                             }
                         }
+                    }
+                    
+                    // Game detail dialog
+                    selectedGame?.let { game ->
+                        GameDetailDialog(game = game, onDismiss = { selectedGame = null })
                     }
                 }
             }
@@ -377,6 +433,117 @@ private fun parseGamesResult(jsonStr: String): List<SteamGame>? {
     }
 }
 
+/**
+ * Enrich game list with names from Steam API.
+ * Fetches names in batches and updates state progressively.
+ * Uses a simple in-memory cache to avoid re-fetching.
+ */
+private val gameNameCache = mutableMapOf<Int, String>()
+
+// Well-known games that may not return from appdetails API
+private val WELL_KNOWN_GAMES = mapOf(
+    730 to "Counter-Strike 2",
+    570 to "Dota 2",
+    440 to "Team Fortress 2",
+    578080 to "PUBG: BATTLEGROUNDS",
+    1172470 to "Apex Legends",
+    252490 to "Rust",
+    271590 to "Grand Theft Auto V",
+    1085660 to "Destiny 2",
+    1245620 to "Elden Ring",
+    892970 to "Valheim",
+    1091500 to "Cyberpunk 2077",
+    413150 to "Stardew Valley",
+    814380 to "Sekiro: Shadows Die Twice",
+    374320 to "Dark Souls III",
+    1817070 to "Marvel Rivals",
+    1623730 to "Palworld",
+    553850 to "Helldivers 2",
+    2358720 to "Black Myth: Wukong",
+    1966720 to "Lethal Company",
+    1203220 to "Naraka: Bladepoint"
+)
+
+private suspend fun enrichGameNames(
+    games: List<SteamGame>,
+    onProgress: (List<SteamGame>) -> Unit
+): List<SteamGame> {
+    if (games.isEmpty()) return games
+    
+    return withContext(Dispatchers.IO) {
+        val enriched = games.toMutableList()
+        val batchSize = 10
+        val batches = games.chunked(batchSize)
+        
+        for ((batchIndex, batch) in batches.withIndex()) {
+            val batchEnriched = batch.map { game ->
+                // Check cache first
+                val cachedName = gameNameCache[game.appId]
+                if (cachedName != null) {
+                    return@map SteamGame(appId = game.appId, name = cachedName, playtimeHours = game.playtimeHours)
+                }
+                
+                // Skip if already has real name (not placeholder)
+                if (!game.name.startsWith("App ")) {
+                    return@map game
+                }
+                
+                // Check well-known games fallback (some games don't return from appdetails)
+                val wellKnownName = WELL_KNOWN_GAMES[game.appId]
+                if (wellKnownName != null) {
+                    gameNameCache[game.appId] = wellKnownName
+                    return@map SteamGame(appId = game.appId, name = wellKnownName, playtimeHours = game.playtimeHours)
+                }
+                
+                try {
+                    val url = URL("https://store.steampowered.com/api/appdetails?appids=${game.appId}&l=english")
+                    val connection = url.openConnection() as HttpURLConnection
+                    connection.connectTimeout = 3000
+                    connection.readTimeout = 3000
+                    
+                    val response = connection.inputStream.bufferedReader().readText()
+                    val json = JSONObject(response)
+                    val appData = json.optJSONObject(game.appId.toString())
+                    
+                    if (appData?.optBoolean("success") == true) {
+                        val data = appData.optJSONObject("data")
+                        val name = data?.optString("name")?.takeIf { it.isNotBlank() } 
+                            ?: "Unknown (${game.appId})"
+                        gameNameCache[game.appId] = name
+                        SteamGame(appId = game.appId, name = name, playtimeHours = game.playtimeHours)
+                    } else {
+                        // API returned success:false - mark as unknown but cache it
+                        val fallbackName = "Unknown (${game.appId})"
+                        gameNameCache[game.appId] = fallbackName
+                        SteamGame(appId = game.appId, name = fallbackName, playtimeHours = game.playtimeHours)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to fetch name for ${game.appId}: ${e.message}")
+                    game
+                }
+            }
+            
+            // Update enriched list with this batch's results
+            for ((i, enrichedGame) in batchEnriched.withIndex()) {
+                val originalIndex = batchIndex * batchSize + i
+                if (originalIndex < enriched.size) {
+                    enriched[originalIndex] = enrichedGame
+                }
+            }
+            
+            // Report progress after each batch
+            onProgress(enriched.toList())
+            
+            // Small delay between batches to avoid rate limiting
+            if (batchIndex < batches.size - 1) {
+                delay(100)
+            }
+        }
+        
+        enriched
+    }
+}
+
 @Composable
 private fun Modifier.alpha(alpha: Float) = this.then(Modifier.background(Color.Transparent))
 
@@ -402,18 +569,6 @@ private fun SteamGameCard(game: SteamGame, onClick: () -> Unit) {
                 contentScale = ContentScale.Crop,
                 onState = { if (it is AsyncImagePainter.State.Error && !useFallback) useFallback = true }
             )
-            
-            Box(
-                Modifier.fillMaxWidth().height(60.dp).align(Alignment.BottomCenter)
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f))))
-            )
-            
-            Column(Modifier.align(Alignment.BottomStart).padding(8.dp)) {
-                Text(game.name, style = MaterialTheme.typography.labelSmall, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
-                if (game.playtimeHours > 0) {
-                    Text(game.playtimeFormatted, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.7f))
-                }
-            }
         }
     }
 }
@@ -468,4 +623,34 @@ private fun NoSearchResultsContent() {
             Text("No games match your search", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
+}
+
+@Composable
+private fun GameDetailDialog(game: SteamGame, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        },
+        title = {
+            Text(game.name, fontWeight = FontWeight.Bold)
+        },
+        text = {
+            Column {
+                AsyncImage(
+                    model = game.headerImageUrl,
+                    contentDescription = game.name,
+                    modifier = Modifier.fillMaxWidth().aspectRatio(460f/215f),
+                    contentScale = ContentScale.Crop
+                )
+                Spacer(Modifier.height(16.dp))
+                Text("App ID: ${game.appId}", style = MaterialTheme.typography.bodyMedium)
+                Text("Playtime: ${game.playtimeFormatted}", style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(8.dp))
+                Text("Store: store.steampowered.com/app/${game.appId}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+            }
+        }
+    )
 }

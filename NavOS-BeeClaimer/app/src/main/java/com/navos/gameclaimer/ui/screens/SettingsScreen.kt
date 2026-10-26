@@ -52,6 +52,11 @@ fun SettingsScreen(
     val themeState = LocalThemeState.current
     val themePrefs = remember { ThemePreferences(context) }
     
+    // Developer options state
+    var developerOptionsEnabled by remember { mutableStateOf(themePrefs.developerOptionsEnabled) }
+    var versionTapCount by remember { mutableStateOf(0) }
+    val tapsToEnable = 7
+    
     // Sync theme state with preferences
     LaunchedEffect(Unit) {
         themeState.currentTheme = themePrefs.selectedTheme
@@ -334,44 +339,8 @@ fun SettingsScreen(
                 )
             }
             
-            // Security Section
-            BrutalistSettingsSection(title = "Security & Privacy") {
-                BrutalistCard(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                ) {
-                    Text(
-                        text = "• Credentials stored using Android Keystore encryption\n" +
-                               "• Sessions are isolated per store\n" +
-                               "• No data is sent to third parties\n" +
-                               "• All network traffic uses HTTPS\n" +
-                               "• Backups exclude sensitive credentials",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-            
-            // About Section
-            BrutalistSettingsSection(title = "About") {
-                BrutalistCard(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                ) {
-                    Text(
-                        text = "NavOS GameClaimer v0.1.0-alpha\n" +
-                               "Phase 22: Brutalist UI Redesign\n" +
-                               "© 2026 NavOS Project",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-            
-            // Debug Section (Debug builds only)
-            if (com.navos.gameclaimer.BuildConfig.DEBUG) {
+            // Developer Options Section (Debug builds only) - shown only when enabled
+            if (com.navos.gameclaimer.BuildConfig.DEBUG && developerOptionsEnabled) {
                 BrutalistSettingsSection(title = "Developer Options") {
                     BrutalistCard(
                         modifier = Modifier
@@ -445,6 +414,90 @@ fun SettingsScreen(
                             )
                         }
                     }
+                    
+                    Spacer(modifier = Modifier.height(BrutalistDesign.SpacingSmall.dp))
+                    
+                    // Disable Developer Options button
+                    BrutalistCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        onClick = {
+                            developerOptionsEnabled = false
+                            themePrefs.developerOptionsEnabled = false
+                            statusMessage = "Developer options disabled"
+                            isError = false
+                        }
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.VisibilityOff,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = "Disable Developer Options",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                }
+            }
+            
+            // Security & Privacy Section (MERGED)
+            BrutalistSettingsSection(title = "Security & Privacy") {
+                BrutalistCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                ) {
+                    Text(
+                        text = "• Credentials stored using Android Keystore encryption\n" +
+                               "• Sessions are isolated per store\n" +
+                               "• No data is sent to third parties\n" +
+                               "• All network traffic uses HTTPS\n" +
+                               "• Backups exclude sensitive credentials",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            
+            // About Section - tap version info 7 times to enable developer options
+            BrutalistSettingsSection(title = "About") {
+                BrutalistCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    onClick = if (com.navos.gameclaimer.BuildConfig.DEBUG && !developerOptionsEnabled) {
+                        {
+                            versionTapCount++
+                            val remaining = tapsToEnable - versionTapCount
+                            if (remaining > 0 && remaining <= 3) {
+                                statusMessage = "$remaining taps to enable developer options"
+                                isError = false
+                            } else if (versionTapCount >= tapsToEnable) {
+                                developerOptionsEnabled = true
+                                themePrefs.developerOptionsEnabled = true
+                                versionTapCount = 0
+                                statusMessage = "Developer options enabled!"
+                                isError = false
+                            }
+                        }
+                    } else null
+                ) {
+                    Text(
+                        text = "NavOS GameClaimer v0.1.0-alpha\n" +
+                               "Phase 22: Brutalist UI Redesign\n" +
+                               "© 2026 NavOS Project",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
             
